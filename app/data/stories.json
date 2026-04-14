@@ -1,0 +1,404 @@
+{
+  "stories": {
+    "ai-revolution": {
+      "topicId": "ai-revolution",
+      "events": [
+        {
+          "id": "ai-1",
+          "title": "ChatGPT Launch Marks AI Mainstream Era",
+          "description": "OpenAI launches ChatGPT, reaching 1 million users in just 5 days, marking the beginning of widespread AI adoption",
+          "date": "2022-11-30",
+          "source": "TechCrunch",
+          "content": "OpenAI released ChatGPT to the public, a conversational AI that demonstrated unprecedented capabilities in natural language understanding. The platform broke records by becoming the fastest-growing application, attracting massive mainstream attention.",
+          "imageUrl": "https://images.unsplash.com/photo-1677442d019cecf8d4163c53231e4e98b6e4370b0?w=800&h=400&fit=crop",
+          "tags": ["AI", "ChatGPT", "OpenAI"]
+        },
+        {
+          "id": "ai-2",
+          "title": "Google Releases Bard AI Assistant",
+          "description": "Google announces its AI assistant 'Bard' to compete with ChatGPT, bringing AI conversation to billions",
+          "date": "2023-03-21",
+          "source": "Google Blog",
+          "content": "Google announced Bard, its AI conversational assistant, as a response to ChatGPT's success. The announcement signaled the beginning of a major AI arms race among tech giants.",
+          "imageUrl": "https://images.unsplash.com/photo-1516321318423-f06f70259b51?w=800&h=400&fit=crop",
+          "tags": ["AI", "Google", "Bard"]
+        },
+        {
+          "id": "ai-3",
+          "title": "AI Regulation Discussions Begin",
+          "description": "Governments worldwide begin discussing frameworks for AI regulation and safety measures",
+          "date": "2023-05-30",
+          "source": "Reuters",
+          "content": "Following rapid AI adoption, world leaders convened to discuss regulatory frameworks for artificial intelligence. The UK government published AI regulatory principles focusing on transparency and accountability.",
+          "imageUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=400&fit=crop",
+          "tags": ["AI Policy", "Regulation", "Government"]
+        },
+        {
+          "id": "ai-4",
+          "title": "GPT-4 Released - Advanced Capabilities",
+          "description": "OpenAI launches GPT-4 with significantly improved reasoning and multimodal capabilities",
+          "date": "2023-03-14",
+          "source": "OpenAI",
+          "content": "GPT-4 introduced new capabilities including the ability to process both text and images, showing improved reasoning across complex domains and better accuracy in specialized areas.",
+          "imageUrl": "https://images.unsplash.com/photo-1677442d019cecf8d4163c53231e4e98b6e4370b0?w=800&h=400&fit=crop",
+          "tags": ["AI", "GPT-4", "Technology"]
+        },
+        {
+          "id": "ai-5",
+          "title": "AI Integration in Enterprise Software",
+          "description": "Major companies integrate AI into their products - Microsoft adds Copilot to Office suite",
+          "date": "2023-08-15",
+          "source": "Microsoft",
+          "content": "Microsoft announced deep integration of AI capabilities throughout its Office suite, including Word, Excel, and PowerPoint, demonstrating enterprise-wide AI adoption.",
+          "imageUrl": "https://images.unsplash.com/photo-1633356122544-f134324ef6db?w=800&h=400&fit=crop",
+          "tags": ["Enterprise", "Microsoft", "Copilot"]
+        },
+        {
+          "id": "ai-6",
+          "title": "AI Safety Standards Proposed",
+          "description": "International bodies propose standards for responsible AI development and deployment",
+          "date": "2024-02-10",
+          "source": "ISO News",
+          "content": "International Standard Organization provides guidelines for AI safety, security, and transparency. Companies begin implementing standards for responsible AI use across all sectors.",
+          "imageUrl": "https://images.unsplash.com/photo-1535378917042-5a63d64dc1a9?w=800&h=400&fit=crop",
+          "tags": ["AI Safety", "Standards", "Regulation"]
+        },
+        {
+          "id": "ai-7",
+          "title": "Anthropic Reaches $5B Valuation",
+          "description": "AI safety-focused startup Anthropic reaches $5 billion valuation, backed by Google and others",
+          "date": "2024-03-25",
+          "source": "VentureBeat",
+          "content": "Anthropic, founded by former OpenAI researchers, secured significant funding to develop safer AI systems, reaching a $5 billion valuation and demonstrating investor confidence in responsible AI.",
+          "imageUrl": "https://images.unsplash.com/photo-1679402179997-4c0f088e5f43?w=800&h=400&fit=crop",
+          "tags": ["Startup", "Funding", "AI Safety"]
+        },
+        {
+          "id": "ai-8",
+          "title": "Multimodal AI Platforms Dominate",
+          "description": "AI systems capable of understanding and generating text, images, and video become mainstream",
+          "date": "2024-04-10",
+          "source": "TechCrunch",
+          "content": "New generation of AI models that process and generate multiple types of content simultaneously become industry standard, enabling new creative and productive applications.",
+          "imageUrl": "https://images.unsplash.com/photo-1677442d019cecf8d4163c53231e4e98b6e4370b0?w=800&h=400&fit=crop",
+          "tags": ["Multimodal", "Technology", "AI Models"]
+        }
+      ]
+    },
+    "climate-change": {
+      "topicId": "climate-change",
+      "events": [
+        {
+          "id": "cc-1",
+          "title": "Paris Climate Agreement Achieved",
+          "description": "Nearly 200 countries sign the Paris Agreement to combat global warming",
+          "date": "2015-12-12",
+          "source": "UN News",
+          "content": "The Paris Agreement was adopted at COP21, representing the first legally binding global climate agreement with targets to limit warming to well below 2°C.",
+          "imageUrl": "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=800&h=400&fit=crop",
+          "tags": ["Climate", "International", "COP"]
+        },
+        {
+          "id": "cc-2",
+          "title": "Glasgow Climate Pact (COP26) Agreed",
+          "description": "COP26 concludes with agreement to accelerate climate action through 2030",
+          "date": "2021-11-13",
+          "source": "UN Climate",
+          "content": "COP26 in Glasgow resulted in commitments to strengthen climate targets for 2030 and established carbon market rules for international emissions trading.",
+          "imageUrl": "https://images.unsplash.com/photo-1625246333195-78d9c38ad576?w=800&h=400&fit=crop",
+          "tags": ["COP26", "Policy", "Climate"]
+        },
+        {
+          "id": "cc-3",
+          "title": "Global Renewable Energy Capacity Exceeds 3 TW",
+          "description": "Renewable energy sources reach record capacity milestone, marking shift in global energy",
+          "date": "2023-01-15",
+          "source": "IEA",
+          "content": "The International Energy Agency reported that renewable energy capacity surpassed 3 terawatts globally, with solar and wind leading the expansion.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Renewable Energy", "Milestone", "Energy"]
+        },
+        {
+          "id": "cc-4",
+          "title": "Dubai Climate Conference Sets New Targets",
+          "description": "COP28 in Dubai establishes unprecedented agreement to transition away from fossil fuels",
+          "date": "2023-12-12",
+          "source": "COP28",
+          "content": "For the first time in climate negotiations, countries agreed to 'transition away from fossil fuels in energy systems' as part of COP28's final agreement.",
+          "imageUrl": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=800&h=400&fit=crop",
+          "tags": ["COP28", "Fossil Fuels", "Climate"]
+        },
+        {
+          "id": "cc-5",
+          "title": "Electric Vehicle Sales Reach 14 Million",
+          "description": "Global EV sales milestone achieved, accounting for 18% of total car sales",
+          "date": "2024-01-20",
+          "source": "BloombergNEF",
+          "content": "Electric vehicle sales surpassed 14 million units globally in 2024, representing a significant shift in transportation and contributing to emissions reduction goals.",
+          "imageUrl": "https://images.unsplash.com/photo-1622519200151-f8c7eaae7f00?w=800&h=400&fit=crop",
+          "tags": ["Transportation", "EV", "Emissions"]
+        },
+        {
+          "id": "cc-6",
+          "title": "Carbon Pricing Mechanisms Expand",
+          "description": "More countries implement carbon pricing and emission trading systems",
+          "date": "2024-03-05",
+          "source": "World Bank",
+          "content": "Carbon pricing mechanisms covering about 25% of global emissions are now in place, with more countries launching market-based climate solutions.",
+          "imageUrl": "https://images.unsplash.com/photo-1578500494198-246f612d03b3?w=800&h=400&fit=crop",
+          "tags": ["Carbon Pricing", "Economics", "Climate"]
+        }
+      ]
+    },
+    "tech-startups": {
+      "topicId": "tech-startups",
+      "events": [
+        {
+          "id": "ts-1",
+          "title": "Unicorn Era Begins",
+          "description": "First technology startup reaches $1 billion valuation without IPO - 'Unicorn' term coined",
+          "date": "2013-06-15",
+          "source": "TechCrunch",
+          "content": "Airbulb became the first startup to reach a $1 billion valuation while still private, marking the beginning of the unicorn era in venture capital.",
+          "imageUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=400&fit=crop",
+          "tags": ["Venture Capital", "Startups", "Unicorn"]
+        },
+        {
+          "id": "ts-2",
+          "title": "Decacorn Club Established",
+          "description": "First startups reach $10 billion valuation milestone",
+          "date": "2018-03-10",
+          "source": "Forbes",
+          "content": "Companies like Uber and Airbnb became decacorns, reaching $10+ billion valuations and demonstrating the massive scale potential of technology startups.",
+          "imageUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=400&fit=crop",
+          "tags": ["Valuations", "Startups", "Venture"]
+        },
+        {
+          "id": "ts-3",
+          "title": "Creator Economy Boom",
+          "description": "Startups enabling content creators surge, including Patreon, Discord, and others",
+          "date": "2021-01-20",
+          "source": "VentureBeat",
+          "content": "Platforms built for creators achieved rapid growth and significant valuations, creating a new category of business and supporting billions in creator earnings.",
+          "imageUrl": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&h=400&fit=crop",
+          "tags": ["Creator Economy", "Startups", "Content"]
+        },
+        {
+          "id": "ts-4",
+          "title": "AI Startup Funding Explosion",
+          "description": "Venture capital flooding into AI startups following ChatGPT success",
+          "date": "2023-02-15",
+          "source": "PitchBook",
+          "content": "Following ChatGPT's viral success, venture capital investment in AI startups increased dramatically, with numerous companies raising massive Series A and B rounds.",
+          "imageUrl": "https://images.unsplash.com/photo-1677442d019cecf8d4163c53231e4e98b6e4370b0?w=800&h=400&fit=crop",
+          "tags": ["AI", "Funding", "Startups"]
+        },
+        {
+          "id": "ts-5",
+          "title": "B2B SaaS Maturation Phase",
+          "description": "B2B software companies transition to profitability and sustainable growth models",
+          "date": "2023-08-10",
+          "source": "SaaS Capital",
+          "content": "Mature SaaS companies demonstrated path to profitability with efficient unit economics, shifting investor focus from growth at all costs to sustainable business models.",
+          "imageUrl": "https://images.unsplash.com/photo-1633356122544-f134324ef6db?w=800&h=400&fit=crop",
+          "tags": ["SaaS", "B2B", "Business"]
+        },
+        {
+          "id": "ts-6",
+          "title": "Climate Tech Startups Rise",
+          "description": "Significant investment in startups addressing climate change and sustainability",
+          "date": "2024-02-01",
+          "source": "Pitchbook",
+          "content": "Climate technology startups attracted increased venture funding for solutions in carbon capture, renewable energy, and sustainable agriculture.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Climate Tech", "Sustainability", "Startups"]
+        }
+      ]
+    },
+    "space-exploration": {
+      "topicId": "space-exploration",
+      "events": [
+        {
+          "id": "se-1",
+          "title": "First Space Station Module Launched",
+          "description": "Mir space station module marks human's first permanent residence in space",
+          "date": "1986-02-20",
+          "source": "NASA",
+          "content": "Soviet Union launched the first module of Mir space station, beginning a new era of long-term human presence in space.",
+          "imageUrl": "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+          "tags": ["Space", "ISS", "Exploration"]
+        },
+        {
+          "id": "se-2",
+          "title": "International Space Station Completed",
+          "description": "ISS construction completed after 12 years, becoming humanity's laboratory in orbit",
+          "date": "2011-07-21",
+          "source": "NASA",
+          "content": "The International Space Station, a collaborative effort of multiple nations, was substantially complete and began its 20-year operational phase.",
+          "imageUrl": "https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=800&h=400&fit=crop",
+          "tags": ["ISS", "International", "Space"]
+        },
+        {
+          "id": "se-3",
+          "title": "SpaceX Lands Reusable Rocket",
+          "description": "SpaceX achieves first successful landing of orbital-class rocket booster",
+          "date": "2015-12-21",
+          "source": "SpaceX",
+          "content": "SpaceX successfully landed Falcon 9's first stage booster, proving reusable rocket technology and dramatically reducing space launch costs.",
+          "imageUrl": "https://images.unsplash.com/photo-1489599849228-de6dba46b13d?w=800&h=400&fit=crop",
+          "tags": ["SpaceX", "Rocket", "Reusable"]
+        },
+        {
+          "id": "se-4",
+          "title": "Humans Return to the Moon",
+          "description": "NASA's Artemis program successfully lands astronauts on lunar surface",
+          "date": "2025-11-15",
+          "source": "NASA",
+          "content": "After a 52-year gap, humans returned to the Moon with the Artemis I mission, establishing a foothold for future lunar exploration and Mars missions.",
+          "imageUrl": "https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=800&h=400&fit=crop",
+          "tags": ["Artemis", "Moon", "NASA"]
+        },
+        {
+          "id": "se-5",
+          "title": "First Private Space Station Launched",
+          "description": "Private companies deploy their own space station modules for commercial use",
+          "date": "2024-06-10",
+          "source": "Axiom Space",
+          "content": "Axiom Space launched modules for the first privately-developed space station, marking the beginning of commercial spaceflight infrastructure.",
+          "imageUrl": "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+          "tags": ["Private Space", "Commercial", "Innovation"]
+        },
+        {
+          "id": "se-6",
+          "title": "Mars Sample Return Mission Success",
+          "description": "Samples from Mars successfully returned to Earth for analysis",
+          "date": "2026-04-10",
+          "source": "NASA JPL",
+          "content": "NASA's Mars Sample Return mission successfully brought back rock samples from the Martian surface, enabling detailed analysis of potential past microbial life.",
+          "imageUrl": "https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=800&h=400&fit=crop",
+          "tags": ["Mars", "Samples", "NASA"]
+        }
+      ]
+    },
+    "quantum-computing": {
+      "topicId": "quantum-computing",
+      "events": [
+        {
+          "id": "qc-1",
+          "title": "First Quantum Computer Prototype",
+          "description": "IBM demonstrates first practical quantum computer with multiple qubits",
+          "date": "2016-05-04",
+          "source": "IBM",
+          "content": "IBM made its quantum computers available through the cloud, allowing researchers to experiment with quantum computing and accelerating development.",
+          "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=800&h=400&fit=crop",
+          "tags": ["Quantum", "IBM", "Computing"]
+        },
+        {
+          "id": "qc-2",
+          "title": "Google Announces Quantum Supremacy",
+          "description": "Google claims their quantum computer performs task impossible for classical computers",
+          "date": "2019-10-23",
+          "source": "Google AI",
+          "content": "Google announced 'quantum supremacy,' demonstrating their quantum processor completed a complex calculation exponentially faster than the world's fastest supercomputers.",
+          "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=800&h=400&fit=crop",
+          "tags": ["Quantum", "Google", "Supremacy"]
+        },
+        {
+          "id": "qc-3",
+          "title": "Atom Computing Develops 1000+ Qubit System",
+          "description": "Atom Computing reaches breakthrough with over 1000 neutral atom qubits",
+          "date": "2023-06-14",
+          "source": "Atom Computing",
+          "content": "Atom Computing announced a quantum system with over 1000 qubits using neutral atoms, a significant step toward practical quantum computers.",
+          "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=800&h=400&fit=crop",
+          "tags": ["Quantum", "Atoms", "Breakthrough"]
+        },
+        {
+          "id": "qc-4",
+          "title": "Quantum Computing Applications Emerging",
+          "description": "First real-world applications in drug discovery and materials science demonstrated",
+          "date": "2024-01-15",
+          "source": "Nature",
+          "content": "Researchers demonstrate quantum computers solving meaningful problems in pharmaceutical research and material design, moving beyond theoretical demonstrations.",
+          "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=800&h=400&fit=crop",
+          "tags": ["Applications", "Drug Discovery", "Quantum"]
+        },
+        {
+          "id": "qc-5",
+          "title": "Quantum Error Correction Major Milestone",
+          "description": "Google demonstrates quantum error correction breakthrough",
+          "date": "2024-03-04",
+          "source": "Google AI",
+          "content": "Google achieved a major breakthrough in quantum error correction, showing that more qubits could actually improve stability when properly configured.",
+          "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=800&h=400&fit=crop",
+          "tags": ["Error Correction", "Google", "Quantum"]
+        }
+      ]
+    },
+    "renewable-energy": {
+      "topicId": "renewable-energy",
+      "events": [
+        {
+          "id": "re-1",
+          "title": "Kyoto Protocol Established",
+          "description": "International agreement to reduce greenhouse gas emissions through renewable energy",
+          "date": "1997-12-11",
+          "source": "UN",
+          "content": "The Kyoto Protocol was adopted, creating the first legally binding climate agreement and promoting renewable energy adoption worldwide.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["International", "Climate", "Energy"]
+        },
+        {
+          "id": "re-2",
+          "title": "Solar Energy Becomes Cost-Competitive",
+          "description": "Solar power costs drop below fossil fuel costs in many regions",
+          "date": "2016-03-18",
+          "source": "IRENA",
+          "content": "IRENA reported that solar and wind power had become the cheapest sources of electricity in most markets, accelerating renewable energy adoption.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Solar", "Cost", "Renewable"]
+        },
+        {
+          "id": "re-3",
+          "title": "Denmark Reaches 80% Wind Power",
+          "description": "Denmark becomes global leader in wind energy generation",
+          "date": "2022-12-31",
+          "source": "Danish Energy",
+          "content": "Denmark announced that wind power generated 80% of its electricity for the year, demonstrating the viability of renewable energy at national scale.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Wind", "Denmark", "Leadership"]
+        },
+        {
+          "id": "re-4",
+          "title": "Global Renewable Capacity Reaches 3.7 TW",
+          "description": "Renewable energy capacity surpasses fossil fuel capacity for first time",
+          "date": "2023-10-20",
+          "source": "IEA",
+          "content": "International Energy Agency reported that renewable energy capacity exceeded fossil fuel capacity for the first time, a historic milestone in energy transition.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Renewable", "Capacity", "Transition"]
+        },
+        {
+          "id": "re-5",
+          "title": "Battery Storage Becomes Key Infrastructure",
+          "description": "Energy storage technology enables 100% renewable power grids",
+          "date": "2024-02-14",
+          "source": "BloombergNEF",
+          "content": "Advances in battery storage technology made it economically viable to support electricity grids powered entirely by renewable sources.",
+          "imageUrl": "https://images.unsplash.com/photo-1552838615-51629c8b0ac5?w=800&h=400&fit=crop",
+          "tags": ["Battery", "Storage", "Grid"]
+        },
+        {
+          "id": "re-6",
+          "title": "Green Hydrogen Production Scales",
+          "description": "Green hydrogen produced from renewable electricity becomes commercially viable",
+          "date": "2024-04-01",
+          "source": "IEA",
+          "content": "Countries worldwide launched green hydrogen production facilities, enabling decarbonization of heavy industry and long-distance transportation.",
+          "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=800&h=400&fit=crop",
+          "tags": ["Green Hydrogen", "Energy", "Innovation"]
+        }
+      ]
+    }
+  }
+}

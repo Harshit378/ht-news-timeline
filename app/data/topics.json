@@ -1,0 +1,76 @@
+{
+  "topics": [
+    {
+      "id": "ai-revolution",
+      "title": "AI Revolution",
+      "description": "The evolution of artificial intelligence from early research to mainstream adoption",
+      "category": "Technology",
+      "imageUrl": "https://images.unsplash.com/photo-1677442d019cecf8d4163c53231e4e98b6e4370b0?w=500&h=300&fit=crop",
+      "featured": true,
+      "createdAt": "2024-01-15"
+    },
+    {
+      "id": "climate-change",
+      "title": "Global Climate Crisis",
+      "description": "Tracking climate change initiatives, agreements, and environmental milestones",
+      "category": "Environment",
+      "imageUrl": "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=500&h=300&fit=crop",
+      "featured": true,
+      "createdAt": "2023-06-20"
+    },
+    {
+      "id": "tech-startups",
+      "title": "Tech Startup Boom",
+      "description": "Rise of innovative startups transforming industries",
+      "category": "Business",
+      "imageUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=500&h=300&fit=crop",
+      "featured": false,
+      "createdAt": "2024-03-10"
+    },
+    {
+      "id": "space-exploration",
+      "title": "Space Exploration Era",
+      "description": "Milestones in human space exploration and discoveries",
+      "category": "Science",
+      "imageUrl": "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=500&h=300&fit=crop",
+      "featured": true,
+      "createdAt": "2024-02-05"
+    },
+    {
+      "id": "quantum-computing",
+      "title": "Quantum Computing",
+      "description": "Development and breakthroughs in quantum computing technology",
+      "category": "Technology",
+      "imageUrl": "https://images.unsplash.com/photo-1635070041078-e5e90e1c9b71?w=500&h=300&fit=crop",
+      "featured": false,
+      "createdAt": "2024-04-01"
+    },
+    {
+      "id": "renewable-energy",
+      "title": "Renewable Energy Transition",
+      "description": "Global shift towards renewable energy sources and clean power",
+      "category": "Energy",
+      "imageUrl": "https://images.unsplash.com/photo-1509391366360-2e938862d5d6?w=500&h=300&fit=crop",
+      "featured": true,
+      "createdAt": "2023-09-12"
+    },
+    {
+      "id": "biotech-healthcare",
+      "title": "Biotech & Healthcare",
+      "description": "Breakthroughs in biotechnology and medical innovation",
+      "category": "Health",
+      "imageUrl": "https://images.unsplash.com/photo-1576091160550-112173f7f869?w=500&h=300&fit=crop",
+      "featured": false,
+      "createdAt": "2024-02-20"
+    },
+    {
+      "id": "5g-networks",
+      "title": "5G Network Rollout",
+      "description": "Global expansion of 5G technology and its impact on connectivity",
+      "category": "Technology",
+      "imageUrl": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500&h=300&fit=crop",
+      "featured": false,
+      "createdAt": "2023-11-08"
+    }
+  ]
+}
