@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/* Tailwind utilities resolve to the runtime theme variables below, so
+   `bg-bg`, `text-ink`, `border-border` etc. follow [data-theme]. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-dim: var(--text-dim);
+  --color-gold: var(--gold);
+  --font-sans: var(--font-ibm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ibm-mono), ui-monospace, monospace;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+}
+
+/* Dark editorial palette (default, per ADR-001) */
+:root {
+  --bg: #0a0a0b;
+  --surface: #111113;
+  --surface-alt: #18181c;
+  --border: #222226;
+  --accent: #e83a2e;
+  --accent-soft: rgba(232, 58, 46, 0.12);
+  --text: #f0ede8;
+  --text-muted: #7a7878;
+  --text-dim: #3e3d3d;
+  --gold: #c9a84c;
+  --scrim: rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+/* Light "newsprint" variant */
+:root[data-theme='light'] {
+  --bg: #f6f3ee;
+  --surface: #fbf9f5;
+  --surface-alt: #ffffff;
+  --border: #e2ddd3;
+  --accent: #d0302a;
+  --accent-soft: rgba(208, 48, 42, 0.1);
+  --text: #1a1a1a;
+  --text-muted: #6b665e;
+  --text-dim: #c9c3b8;
+  --gold: #9a7a28;
+  --scrim: rgba(26, 26, 26, 0.35);
+  color-scheme: light;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 58, 46, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(232, 58, 46, 0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  /* @theme inline doesn't emit --font-sans as a runtime var; use the next/font variable directly */
+  font-family: var(--font-ibm-sans), ui-sans-serif, system-ui, sans-serif;
+  min-height: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+.font-serif {
+  font-family: var(--font-playfair), ui-serif, Georgia, serif;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

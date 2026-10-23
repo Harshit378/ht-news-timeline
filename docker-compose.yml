@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: timeline
+      POSTGRES_PASSWORD: timeline
+      POSTGRES_DB: timeline
+    ports:
+      - "5432:5432"
+    volumes:
+      - timeline_pg:/var/lib/postgresql/data
+
+volumes:
+  timeline_pg:

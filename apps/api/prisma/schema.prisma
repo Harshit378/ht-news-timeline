@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id             String     @id
+  headline       String
+  excerpt        String
+  body           String?
+  source         String
+  sourceDomain   String?
+  url            String?
+  category       String
+  publishedAt    DateTime
+  imageUrl       String?
+  sentiment      String?
+  bias           String?
+  importance     String     @default("normal")
+  storyClusterId String?
+  tone           Float?
+  createdAt      DateTime   @default(now())
+  bookmarks      Bookmark[]
+
+  @@index([category, publishedAt(sort: Desc)])
+  @@index([storyClusterId])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String   @default("local")
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, articleId])
+}
+
+model LiveEvent {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  description String
+  category    String
+  status      String
+  startDate   DateTime
+  endDate     DateTime?
+  lastUpdated DateTime      @updatedAt
+  updates     EventUpdate[]
+}
+
+model EventUpdate {
+  id         String    @id @default(cuid())
+  eventId    String
+  event      LiveEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  timestamp  DateTime  @default(now())
+  message    String
+  importance String    @default("normal")
+  sources    String[]  @default([])
+}
+
+model TopicSummary {
+  id            String   @id @default(cuid())
+  topicName     String   @unique
+  generatedAt   DateTime @default(now())
+  summary       String
+  keyPoints     String[]
+  sentiment     String
+  articleCount  Int
+  sourceCount   Int
+  relatedTopics String[]
+  trend         String
+  confidence    Float
+}
+
+model RssFeed {
+  id          String    @id @default(cuid())
+  title       String
+  url         String    @unique
+  description String?
+  category    String
+  isActive    Boolean   @default(true)
+  lastChecked DateTime?
+  itemCount   Int       @default(0)
+  addedAt     DateTime  @default(now())
+}
