@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   output: "export",
   trailingSlash: true,
   images: { unoptimized: true },
+  // libs/shared lives outside apps/web and is shared with the Expo app (ADR-001 Path B).
+  experimental: { externalDir: true },
 };
 
 export default nextConfig;

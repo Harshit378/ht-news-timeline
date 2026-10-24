@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "News Timeline",
+    "slug": "ht-timeline",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.htimeline.mobile"
+    },
+    "android": {
+      "package": "com.htimeline.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a0b",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-sqlite",
+        {}
+      ],
+      "expo-web-browser"
+    ],
+    "scheme": "htimeline",
+    "backgroundColor": "#0a0a0b",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

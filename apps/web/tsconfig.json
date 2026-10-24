@@ -15,9 +15,10 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@ht/shared/*": ["../../libs/shared/src/*"]
     }
   },
-  "include": ["next-env.d.ts", "./app/**/*.ts", "./app/**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "./app/**/*.ts", "./app/**/*.tsx", ".next/types/**/*.ts", "../../libs/shared/src/**/*.ts"],
   "exclude": ["node_modules"]
 }

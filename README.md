@@ -5,6 +5,8 @@ Search any story and see what happened from the beginning to now. Nx monorepo:
 | App | Stack | Port |
 | :--- | :--- | :--- |
 | `apps/web` | Next.js 15 · React 19 · Tailwind 4 (mobile-first, Capacitor shell for iOS/Android) | 3000 |
+| `apps/mobile` | Expo SDK 58 · React Native · Expo Router (ADR-001 Path B, standalone npm project) | 8081 |
+| `libs/shared` | Platform-free TypeScript shared by web and mobile (`@ht/shared/*`) | — |
 | `apps/api` | NestJS 11 · Prisma · PostgreSQL 16 · GDELT/RSS ingestion · WebSockets (`/ws/events`) | 4000 |
 
 Architecture decisions live in [`docs/adr/`](docs/adr/architecture_decision_records_adrs.md), and the change history is in [`docs/CHANGE_LEDGER.md`](docs/CHANGE_LEDGER.md).
