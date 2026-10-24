@@ -1,4 +1,5 @@
 import { Global, Logger, Module } from '@nestjs/common';
+import { AnthropicProvider } from './anthropic.provider';
 import { DisabledProvider } from './disabled.provider';
 import { LLM_PROVIDER, LlmProvider } from './llm-provider';
 import { OllamaProvider } from './ollama.provider';
@@ -9,6 +10,8 @@ export function createLlmProvider(env: NodeJS.ProcessEnv = process.env): LlmProv
   switch (choice) {
     case 'ollama':
       return new OllamaProvider(env);
+    case 'anthropic':
+      return new AnthropicProvider(env);
     case 'none':
       return new DisabledProvider();
     default:

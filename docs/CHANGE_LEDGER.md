@@ -10,10 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned & In Progress
 - **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
-- **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
+- **Per-user LLM quotas (ADR-004, needs ADR-007):** replace the global daily token cap with per-tier quotas once accounts exist.
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+
+### ADR-004 — Claude provider + daily token cap · 2026-10-25
+- Added `apps/api/src/llm/anthropic.provider.ts` (`@anthropic-ai/sdk`), selected with `LLM_PROVIDER=anthropic`. Defaults to `claude-haiku-5-5` (`ANTHROPIC_MODEL` overrides) at effort `low` (`ANTHROPIC_EFFORT`). The request's JSON schema goes in `output_config.format` (structured outputs); `max_tokens` has a 4096 floor because thinking tokens count against it; no `temperature`. Credentials: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile.
+- Error mapping: auth / rate limit / 5xx / timeout / network → `LlmUnavailableError` (callers fall back as with Ollama); 400 → `LlmOutputError` and logged; `refusal`, `max_tokens` and invalid JSON → `LlmOutputError`. `/api/health` shows a rejected key until a call succeeds, and today's token use.
+- `TokenBudget` (`llm/token-budget.ts`): global daily ceiling `LLM_DAILY_TOKEN_LIMIT` (default 2,000,000 input+output tokens, UTC day, `0` = unlimited). Once used, calls stop and the existing fallbacks apply. Per-user quotas still wait for ADR-007.
+- `SUMMARY_SCHEMA` now sets `additionalProperties: false` (required by structured outputs; Ollama unaffected).
+- Tests: `anthropic.provider.spec.ts` (structured-output params, model/effort overrides, error mapping, status after a rejected key, budget stop, provider selection, day rollover). `pnpm test` 163/163.
+- Not verified against the real API: no Anthropic credentials on this machine. The dev API still runs on Ollama (`/api/health` → llama3.2 ok).
 
 ### ADR-005 — Multi-instance fan-out via an event bus · 2026-10-25
 - Added `apps/api/src/events/event-bus.ts`: `EventBus` with `InMemoryEventBus` (default) and `RedisEventBus` (`ioredis`, used when `REDIS_URL` is set). `EventsController` publishes to the bus; `EventsFanout` delivers bus messages to this instance's `EventsGateway.broadcast`. Every instance, including the publisher, receives each update once from Redis.

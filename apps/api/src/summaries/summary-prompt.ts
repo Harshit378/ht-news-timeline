@@ -16,6 +16,8 @@ export const SUMMARY_SCHEMA = {
     relatedTopics: { type: 'array', items: { type: 'string' } },
   },
   required: ['summary', 'keyPoints', 'sentiment', 'relatedTopics'],
+  // Required by Claude structured outputs; harmless for Ollama.
+  additionalProperties: false,
 } as const;
 
 const SYSTEM_PROMPT = `You are a news desk editor. You write short, neutral briefs from wire reports.
