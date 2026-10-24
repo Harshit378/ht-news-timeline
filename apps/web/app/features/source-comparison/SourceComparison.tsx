@@ -1,162 +1,119 @@
 'use client';
 
-import React, { useState } from 'react';
-import { ComparisonArticle } from './types';
-import { ChevronDown, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, Scale } from 'lucide-react';
+import { useFeed } from '@/app/contexts/FeedContext';
+import { useHydrated } from '@/app/hooks/useHydrated';
+import type { StoryComparison } from './types';
 
-interface SourceComparisonProps {
-  article: ComparisonArticle;
-}
+const COLLAPSED_SOURCES = 4;
 
-export default function SourceComparison({ article }: SourceComparisonProps) {
-  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+/** How outlets covered the same story (ADR-004): shared themes, then each source with what sets it apart. */
+export default function SourceComparison({ comparison }: { comparison: StoryComparison }) {
+  const { openArticle } = useFeed();
+  const hydrated = useHydrated();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? comparison.sources : comparison.sources.slice(0, COLLAPSED_SOURCES);
 
-  const toggleSourceExpanded = (sourceId: string) => {
-    const next = new Set(expandedSources);
-    if (next.has(sourceId)) next.delete(sourceId);
-    else next.add(sourceId);
-    setExpandedSources(next);
-  };
+  const toggle = (source: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
 
-  const getSentimentColor = (sentiment?: string) => {
-    switch (sentiment) {
-      case 'positive':
-        return 'bg-green-900 text-green-100';
-      case 'negative':
-        return 'bg-red-900 text-red-100';
-      default:
-        return 'bg-slate-800 text-slate-100';
-    }
-  };
-
-  const getBiasIndicator = (bias?: string) => {
-    switch (bias) {
-      case 'left':
-        return <span className="px-2 py-1 text-xs rounded bg-blue-900 text-blue-100">Left</span>;
-      case 'right':
-        return <span className="px-2 py-1 text-xs rounded bg-red-900 text-red-100">Right</span>;
-      default:
-        return <span className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-100">Center</span>;
-    }
-  };
+  const time = (iso: string) =>
+    hydrated ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
 
   return (
-    <div className="w-full max-w-6xl mx-auto p-4 bg-slate-900 rounded-lg border border-slate-700">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-100 mb-2">{article.aggregatedHeadline}</h1>
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span className="px-3 py-1 text-xs rounded-full bg-blue-900 text-blue-100">
-            {article.topic}
-          </span>
-          <span className="text-sm text-slate-400">
-            First reported: {new Date(article.firstReported).toLocaleDateString()}
-          </span>
+    <section className="mx-4 mt-3 rounded-[10px] border border-border bg-surface p-4" aria-label="How sources compare">
+      <p className="mb-3 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-gold">
+        <Scale className="h-3.5 w-3.5" aria-hidden />
+        How sources compare
+      </p>
+
+      {comparison.commonThemes.length > 0 && (
+        <div className="mb-3">
+          <p className="mb-1.5 text-xs text-muted">Most sources cover</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {comparison.commonThemes.map((theme) => (
+              <li key={theme} className="rounded-full border border-border bg-surface-alt px-2.5 py-1 text-xs text-ink">
+                {theme}
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        {article.commonThemes.length > 0 && (
-          <div className="bg-slate-800 rounded p-3 mb-4 border border-slate-700">
-            <p className="text-sm font-semibold text-slate-100 mb-2">Common Themes:</p>
-            <div className="flex flex-wrap gap-2">
-              {article.commonThemes.map((theme, i) => (
-                <span key={i} className="text-xs bg-slate-700 text-slate-200 px-2 py-1 rounded">
-                  {theme}
+      <ul className="divide-y divide-border border-t border-border">
+        {visible.map((s) => {
+          const open = expanded.has(s.source);
+          return (
+            <li key={s.source} className="py-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-ink">{s.source}</span>
+                <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted">
+                  {s.reportCount} {s.reportCount === 1 ? 'report' : 'reports'}
                 </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {article.differences.length > 0 && (
-          <div className="bg-amber-900 bg-opacity-20 rounded p-3 border border-amber-700">
-            <p className="text-sm font-semibold text-amber-100 mb-2">Key Differences:</p>
-            <ul className="space-y-1">
-              {article.differences.map((diff, i) => (
-                <li key={i} className="text-sm text-amber-100 flex gap-2">
-                  <span className="text-amber-400">•</span>
-                  {diff}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {article.sources.map((source) => (
-          <div
-            key={source.sourceId}
-            className="border border-slate-700 rounded-lg overflow-hidden bg-slate-800 hover:border-slate-600 transition-colors"
-          >
-            <div
-              className="p-4 cursor-pointer hover:bg-slate-700 transition-colors"
-              onClick={() => toggleSourceExpanded(source.sourceId)}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1">
-                  <h3 className="font-semibold text-slate-100 text-sm">{source.sourceName}</h3>
-                  <p className="text-xs text-slate-400">
-                    {new Date(source.publishedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {getBiasIndicator(source.bias)}
-                  <ChevronDown
-                    className={`w-4 h-4 text-slate-400 transition-transform ${
-                      expandedSources.has(source.sourceId) ? 'rotate-180' : ''
-                    }`}
-                  />
-                </div>
               </div>
-
-              <h4 className="font-medium text-slate-100 mb-2 line-clamp-2">{source.headline}</h4>
-
-              {source.imageUrl && (
-                <div className="mb-3 rounded overflow-hidden h-32 bg-slate-700">
-                  <img
-                    src={source.imageUrl}
-                    alt=""
-                    className="w-full h-full object-cover opacity-70"
-                  />
-                </div>
+              {s.differences.map((d) => (
+                <p key={d} className="mt-1.5 border-l-2 border-accent pl-2 text-sm text-ink">
+                  {d}
+                </p>
+              ))}
+              <button
+                type="button"
+                onClick={() => openArticle(s.latest.id)}
+                className="mt-1.5 block min-h-[44px] w-full text-left text-sm text-muted active:text-ink"
+              >
+                <span className="font-mono text-[10px] text-gold">{time(s.latest.publishedAt)}</span>{' '}
+                {s.latest.title}
+              </button>
+              {s.earlier.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => toggle(s.source)}
+                    aria-expanded={open}
+                    className="flex min-h-[32px] items-center gap-1 text-xs font-semibold text-muted"
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+                    {open ? 'Hide' : 'Show'} {s.earlier.length} earlier
+                  </button>
+                  {open && (
+                    <ul className="mt-1 space-y-1">
+                      {s.earlier.map((a) => (
+                        <li key={a.id}>
+                          <button
+                            type="button"
+                            onClick={() => openArticle(a.id)}
+                            className="block min-h-[36px] w-full text-left text-xs text-muted active:text-ink"
+                          >
+                            <span className="font-mono text-[10px] text-gold">{time(a.publishedAt)}</span> {a.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
+            </li>
+          );
+        })}
+      </ul>
 
-              <p className="text-sm text-slate-300 line-clamp-3">{source.excerpt}</p>
-
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-700">
-                <span
-                  className={`text-xs px-2 py-1 rounded ${getSentimentColor(source.sentiment)}`}
-                >
-                  {source.sentiment || 'neutral'}
-                </span>
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                >
-                  Read full <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            </div>
-
-            {expandedSources.has(source.sourceId) && (
-              <div className="px-4 py-3 border-t border-slate-700 bg-slate-900 max-h-64 overflow-y-auto">
-                <div className="prose prose-invert text-sm text-slate-300 space-y-2">
-                  {source.content.split('\n').map((para, i) => (
-                    para.trim() && <p key={i}>{para}</p>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-6 pt-4 border-t border-slate-700">
-        <p className="text-xs text-slate-500">
-          Last updated: {new Date(article.lastUpdated).toLocaleString()}
-        </p>
-      </div>
-    </div>
+      {comparison.sources.length > COLLAPSED_SOURCES && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-1 min-h-[44px] text-xs font-semibold uppercase tracking-wide text-gold"
+        >
+          {showAll ? 'Show fewer sources' : `Show all ${comparison.sources.length} sources`}
+        </button>
+      )}
+      <p className="mt-2 font-mono text-[11px] text-muted">AI comparison of headlines and excerpts · may contain errors</p>
+    </section>
   );
 }

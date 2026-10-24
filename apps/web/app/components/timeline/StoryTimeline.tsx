@@ -147,7 +147,7 @@ export default function StoryTimeline({ query, category }: { query: string; cate
         ) : (
           <>
             {/* Only after the timeline loaded: that request is what starts writing the brief. */}
-            {status !== 'offline' && <StoryBrief query={query} category={category} />}
+            {status !== 'offline' && <StoryBrief query={query} category={category} items={items} />}
             <TimelineList groups={groups} stamp="date" />
             <p className="px-4 pb-6 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
               — Latest as of {formatLong(new Date().toISOString())} —

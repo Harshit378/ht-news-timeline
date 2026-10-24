@@ -88,6 +88,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Fallbacks:** if the LLM is down or disabled, topic summaries use the headline heuristic and story briefs are omitted (the UI hides the panel).
   * **Cost when moving to a cloud model:** about 20 reports × ~100 tokens ≈ 2–3k input tokens + ~300 output tokens per brief. Briefs are cached and regenerated only when coverage changes.
 * **Cloud provider (25 Oct 2026):** `LLM_PROVIDER=anthropic` uses Claude Haiku 5.5 through the Anthropic SDK with structured outputs (`output_config.format`), effort `low`. A global `LLM_DAILY_TOKEN_LIMIT` (default 2M tokens/day) caps spend until per-user quotas exist (ADR-007). At ~2.5k input + ~0.3k output tokens per brief, that is roughly 700 briefs a day; at Haiku 5.5's $0.10 / $0.50 per MTok it is about $0.35/day at the cap.
+* **Source comparison (25 Oct 2026):** for stories with ≥ 3 sources the brief call also returns shared themes and per-source differences (validated against the real source names), stored with the brief and shown under it on `/story`. Remaining for ADR-004: per-user quotas (needs ADR-007).
 
 ---
 

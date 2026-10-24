@@ -20,6 +20,32 @@ export const SUMMARY_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/** Story briefs with enough sources also compare coverage (ADR-004 source comparison), in the same call. */
+export const STORY_COMPARE_SCHEMA = {
+  ...SUMMARY_SCHEMA,
+  properties: {
+    ...SUMMARY_SCHEMA.properties,
+    commonThemes: { type: 'array', items: { type: 'string' } },
+    differences: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { source: { type: 'string' }, point: { type: 'string' } },
+        required: ['source', 'point'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: [...SUMMARY_SCHEMA.required, 'commonThemes', 'differences'],
+} as const;
+
+/** Comparison needs several outlets to say anything useful. */
+export const MIN_COMPARE_SOURCES = 3;
+
+const COMPARE_INSTRUCTIONS = `
+- "commonThemes": 2 to 4 short themes (2-6 words each) that most sources share.
+- "differences": up to 4 items {"source", "point"} where one source's coverage differs from the others: a fact only it reports, a different emphasis, or a disagreement. "source" must be copied exactly from the source names in the reports. "point" is one neutral sentence under 25 words. Use an empty array if the sources do not really differ.`;
+
 const SYSTEM_PROMPT = `You are a news desk editor. You write short, neutral briefs from wire reports.
 Rules:
 - Use ONLY facts stated in the reports inside <reports>. Never add names, numbers, scores, dates or quotes that are not there.
@@ -73,7 +99,12 @@ function sanitize(text: string) {
  * Prompt from headline, source, date and excerpt only (ADR-004: never full bodies), oldest
  * report first so the model can tell the story in order.
  */
-export function buildSummaryPrompt(subject: string, kind: 'story' | 'topic', articles: ArticleRecord[]) {
+export function buildSummaryPrompt(
+  subject: string,
+  kind: 'story' | 'topic',
+  articles: ArticleRecord[],
+  compare = false,
+) {
   const ordered = [...articles].sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
   const reports = ordered
     .map((a, i) => {
@@ -89,5 +120,6 @@ export function buildSummaryPrompt(subject: string, kind: 'story' | 'topic', art
     kind === 'story'
       ? `Write a brief of the story "${sanitize(subject)}" from these ${ordered.length} reports.`
       : `Write a brief of the latest "${sanitize(subject)}" news from these ${ordered.length} reports.`;
-  return { system: SYSTEM_PROMPT, prompt: `${task}\n\n<reports>\n${reports}\n</reports>` };
+  const system = compare ? SYSTEM_PROMPT + COMPARE_INSTRUCTIONS : SYSTEM_PROMPT;
+  return { system, prompt: `${task}\n\n<reports>\n${reports}\n</reports>` };
 }

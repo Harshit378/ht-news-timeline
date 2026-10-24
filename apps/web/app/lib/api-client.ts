@@ -40,6 +40,13 @@ export interface StoryBrief {
   sourceCount: number;
   generatedAt: string;
   model: string | null;
+  /** How the sources' coverage compares; only for stories with ≥ 3 sources (ADR-004). */
+  comparison?: SourceComparisonData | null;
+}
+
+export interface SourceComparisonData {
+  commonThemes: string[];
+  differences: { source: string; point: string }[];
 }
 
 export interface StoryBriefResponse {

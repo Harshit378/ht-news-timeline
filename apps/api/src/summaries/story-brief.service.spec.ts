@@ -82,3 +82,32 @@ describe('StoryBriefService', () => {
     expect(summarize).not.toHaveBeenCalled();
   });
 });
+
+describe('StoryBriefService source comparison', () => {
+  const comparison = { commonThemes: ['Game 7 result'], differences: [{ source: 'BBC', point: 'BBC alone notes the attendance record.' }] };
+
+  it('asks for a comparison with 3+ sources and returns it with the brief', async () => {
+    const { svc, summarize } = setup(vi.fn(async () => ({ ...llmResult, comparison })));
+    await svc.ensure('k|', 'k', three);
+    expect(summarize).toHaveBeenCalledWith('k', 'story', expect.any(Array), { compare: true });
+    expect(svc.get('k|').brief?.comparison).toEqual(comparison);
+  });
+
+  it('does not ask with only 2 sources', async () => {
+    const { svc, summarize } = setup();
+    await svc.ensure('k|', 'k', [rec('a', 'ESPN'), rec('b', 'BBC'), rec('c', 'BBC')]);
+    expect(summarize).toHaveBeenCalledWith('k', 'story', expect.any(Array), { compare: false });
+    expect(svc.get('k|').brief?.comparison).toBeNull();
+  });
+
+  it('upgrades a brief written before comparison existed, once', async () => {
+    const { svc, summarize, summaries } = setup(vi.fn(async () => llmResult)); // model gives no comparison
+    await svc.ensure('k|', 'k', three);
+    summaries.set('k|', { ...summaries.get('k|')!, comparison: null }); // as stored by an older version
+    await svc.ensure('k|', 'k', three);
+    expect(summarize).toHaveBeenCalledTimes(2);
+    expect(summaries.get('k|')?.comparison).toEqual({ commonThemes: [], differences: [] });
+    await svc.ensure('k|', 'k', three);
+    expect(summarize).toHaveBeenCalledTimes(2);
+  });
+});

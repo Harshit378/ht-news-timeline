@@ -51,7 +51,9 @@ export class NewsStore {
       this.prisma.rssFeed.findMany(),
       this.prisma.liveEvent.findMany({ include: { updates: { orderBy: { timestamp: 'desc' } } } }),
     ]);
-    for (const s of summaries) this.summaries.set(s.topicName.toLowerCase(), s);
+    for (const s of summaries) {
+      this.summaries.set(s.topicName.toLowerCase(), { ...s, comparison: s.comparison as TopicSummaryRecord['comparison'] });
+    }
     for (const f of feeds) this.feeds.set(f.id, f);
     for (const e of events) this.events.set(e.id, e);
     if (this.events.size === 0) {
@@ -335,7 +337,7 @@ export class NewsStore {
     if (!this.dbReady) return summary;
     return this.prisma.topicSummary.upsert({
       where: { topicName: summary.topicName },
-      create: summary as Prisma.TopicSummaryCreateInput,
+      create: { ...summary, comparison: summary.comparison ?? Prisma.DbNull } as Prisma.TopicSummaryCreateInput,
       update: {
         generatedAt: summary.generatedAt,
         summary: summary.summary,
@@ -349,6 +351,7 @@ export class NewsStore {
         kind: summary.kind,
         inputHash: summary.inputHash,
         model: summary.model,
+        comparison: summary.comparison ?? Prisma.DbNull,
       },
     });
   }

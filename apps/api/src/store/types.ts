@@ -38,6 +38,8 @@ export interface TopicSummaryRecord {
   relatedTopics: string[];
   trend: string;
   confidence: number;
+  /** Story briefs only (ADR-004 source comparison). */
+  comparison?: { commonThemes: string[]; differences: { source: string; point: string }[] } | null;
 }
 
 export interface RssFeedRecord {

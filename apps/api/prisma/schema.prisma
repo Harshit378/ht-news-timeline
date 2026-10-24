@@ -112,6 +112,8 @@ model TopicSummary {
   relatedTopics String[]
   trend         String
   confidence    Float
+  /// Story briefs only: { commonThemes, differences[{source, point}] } (ADR-004 source comparison).
+  comparison    Json?
 }
 
 model RssFeed {

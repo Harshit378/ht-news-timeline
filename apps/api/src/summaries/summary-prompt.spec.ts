@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArticleRecord } from '../store/types';
-import { buildSummaryPrompt, inputHash, selectArticles } from './summary-prompt';
+import { STORY_COMPARE_SCHEMA, buildSummaryPrompt, inputHash, selectArticles } from './summary-prompt';
 
 function rec(id: string, source: string, iso: string, headline = `Headline ${id}`, excerpt = `Excerpt ${id}`): ArticleRecord {
   return {
@@ -56,5 +56,19 @@ describe('buildSummaryPrompt', () => {
     ]);
     expect(prompt.match(/<\/reports>/g)).toHaveLength(1);
     expect(prompt.trim().endsWith('</reports>')).toBe(true);
+  });
+});
+
+describe('comparison prompt and schema', () => {
+  it('adds comparison instructions only when asked', () => {
+    const a = [rec('a', 'ESPN', '2026-10-24T00:00:00Z')];
+    expect(buildSummaryPrompt('Story', 'story', a, true).system).toContain('"differences"');
+    expect(buildSummaryPrompt('Story', 'story', a).system).not.toContain('"differences"');
+  });
+
+  it('extends the summary schema with strict comparison fields', () => {
+    expect(STORY_COMPARE_SCHEMA.required).toEqual(expect.arrayContaining(['summary', 'commonThemes', 'differences']));
+    expect(STORY_COMPARE_SCHEMA.additionalProperties).toBe(false);
+    expect(STORY_COMPARE_SCHEMA.properties.differences.items.additionalProperties).toBe(false);
   });
 });
