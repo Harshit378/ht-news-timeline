@@ -13,6 +13,8 @@
     "start": "nx start web",
     "lint": "nx lint web",
     "export": "nx run web:export",
+    "clean": "rm -rf dist .next apps/web/.next apps/web/out tsconfig.tsbuildinfo",
+    "clean:all": "pnpm clean && nx reset",
     "mobile:sync": "nx run web:cap-sync",
     "mobile:ios": "nx run web:cap-ios",
     "mobile:android": "nx run web:cap-android",
