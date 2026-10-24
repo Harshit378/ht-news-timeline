@@ -31,6 +31,22 @@ export interface StoryTimelineResponse {
   items: FeedArticle[];
 }
 
+export interface StoryBrief {
+  summary: string;
+  keyPoints: string[];
+  sentiment: string;
+  articleCount: number;
+  sourceCount: number;
+  generatedAt: string;
+  model: string | null;
+}
+
+export interface StoryBriefResponse {
+  /** pending = being written in the background; unavailable = no LLM or too little coverage. */
+  status: 'ready' | 'pending' | 'unavailable';
+  brief?: StoryBrief;
+}
+
 export interface TrendingTopic {
   rank: number;
   topic: string;
@@ -74,9 +90,15 @@ export async function getStoryTimeline(
   const { data } = await api.get<StoryTimelineResponse>('/timeline', {
     params: { q, category },
     signal,
-    // The API answers within its 50s story deadline (partial + `degraded` if GDELT is slow).
-    timeout: 60_000,
+    // The API answers within its 15s story deadline (partial + `degraded` if providers are slow).
+    timeout: 30_000,
   });
+  return data;
+}
+
+/** AI brief for a story timeline; poll while `status` is 'pending'. */
+export async function getStoryBrief(q: string, category?: string, signal?: AbortSignal): Promise<StoryBriefResponse> {
+  const { data } = await api.get<StoryBriefResponse>('/timeline/brief', { params: { q, category }, signal });
   return data;
 }
 

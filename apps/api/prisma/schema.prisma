@@ -94,9 +94,15 @@ model EventUpdate {
   @@index([eventId, timestamp(sort: Desc)])
 }
 
+/// Topic summaries (kind "topic", cron) and AI story briefs (kind "story", keyed by timeline key).
 model TopicSummary {
   id            String   @id @default(cuid())
   topicName     String   @unique
+  kind          String   @default("topic")
+  /// sha1 of the article ids the summary was written from; unchanged input → no regeneration.
+  inputHash     String?
+  /// Model that wrote it ("heuristic" when no LLM was available).
+  model         String?
   generatedAt   DateTime @default(now())
   summary       String
   keyPoints     String[]

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, Pin } from 'lucide-react';
 import PageHeader from '@/app/components/shell/PageHeader';
 import EmptyState from '@/app/components/shell/EmptyState';
+import StoryBrief from '@/app/components/timeline/StoryBrief';
 import TimelineList from '@/app/components/timeline/TimelineList';
 import TimelineSkeleton from '@/app/components/timeline/TimelineSkeleton';
 import { useFeed } from '@/app/contexts/FeedContext';
@@ -145,6 +146,8 @@ export default function StoryTimeline({ query, category }: { query: string; cate
           />
         ) : (
           <>
+            {/* Only after the timeline loaded: that request is what starts writing the brief. */}
+            {status !== 'offline' && <StoryBrief query={query} category={category} />}
             <TimelineList groups={groups} stamp="date" />
             <p className="px-4 pb-6 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
               — Latest as of {formatLong(new Date().toISOString())} —

@@ -1,6 +1,7 @@
 import { BadRequestException, Controller, Get, Logger, Query } from '@nestjs/common';
 import { sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
 import { NewsSearchService } from '../ingestion/news-search.service';
+import { StoryBriefService } from '../summaries/story-brief.service';
 import { NewsStore } from '../store/news.store';
 import { ArticleRecord } from '../store/types';
 import { serializeArticle } from './serialize';
@@ -25,6 +26,11 @@ function normalizeHeadline(h: string) {
     .replace(/\s+[-|–—]\s+[^-|–—]+$/, '') // trailing " - Publisher"
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+}
+
+/** Cache / Story / brief key for a timeline query. */
+export function storyKey(q: string, category?: string) {
+  return `${sanitizeStoryQuery(q.trim()).toLowerCase()}|${category ?? ''}`;
 }
 
 /** Drops syndicated copies: same URL, or same headline (keeping the earliest report). */
@@ -60,16 +66,31 @@ export class TimelineController {
   constructor(
     private readonly store: NewsStore,
     private readonly search: NewsSearchService,
+    private readonly briefs: StoryBriefService,
   ) {}
+
+  /** GET /api/timeline/brief?q=&category= — the AI "What happened" brief, once it has been written. */
+  @Get('brief')
+  brief(@Query('q') q?: string, @Query('category') category?: string) {
+    const query = (q ?? '').trim();
+    if (!query) throw new BadRequestException('q is required');
+    return this.briefs.get(storyKey(query, category));
+  }
 
   @Get()
   async timeline(@Query('q') q?: string, @Query('category') category?: string) {
     const query = (q ?? '').trim();
     if (!query) throw new BadRequestException('q is required');
 
-    const key = `${sanitizeStoryQuery(query).toLowerCase()}|${category ?? ''}`;
+    const key = storyKey(query, category);
     const { items: remote, degraded } = await this.fetchCached(key, query, category);
     const items = dedupeChronological([...remote, ...(await this.store.searchArticles(query))]);
+    // Background only: the brief is fetched separately and never delays or breaks the timeline.
+    try {
+      void this.briefs.ensure(key, query, items);
+    } catch (err) {
+      this.logger.warn(`brief "${query}" not started: ${err instanceof Error ? err.message : err}`);
+    }
 
     return {
       query,

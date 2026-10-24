@@ -10,11 +10,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned & In Progress
 - **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
-- **Cloud LLM Pipeline Integration (ADR-004):** Replace the backend deterministic heuristic summarizer with Gemini 2.5 Flash-Lite / Flash tier LLM prompts for structured JSON topic synthesis and key point extraction.
+- **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
 - **WebSocket Exponential Backoff (ADR-005):** Upgrade `useWebSocket.ts` to compute true exponential backoff (`reconnectInterval * 2^attempts`) up to 5 retries.
 - **Background Bookmark Sync Trigger (ADR-006):** Connect client bookmark mutations in `FeedContext.tsx` to `requestBackgroundSync('sync-bookmarks')` and reconcile against `PUT /api/bookmarks`.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+
+### ADR-004 — AI story briefs & topic summaries via `LlmProvider` (Ollama first) · 2026-10-24
+
+#### Added
+- **`LlmProvider` interface** (`apps/api/src/llm/`), chosen with `LLM_PROVIDER` (default `ollama`; `none` disables it):
+  - `OllamaProvider` calls `/api/chat` with structured output (`format` = JSON schema), `stream:false`, `keep_alive: 30m` and temperature 0.2, and runs one generation at a time.
+  - `DisabledProvider` is used for `none` or unknown values.
+  - Cloud providers plug in as one new class.
+- **Story briefs:** a "What happened" paragraph and 3–5 key points at the top of every story timeline, written from up to 20 reports.
+  - Reports are picked newest first, round-robin across sources, with repeated headlines skipped.
+  - `StoryBriefService` generates in the background on first view, never on the request path. It needs at least 3 reports from 2 sources, runs once per story at a time, keeps a brief at least 30 min, and backs off 5 min after a failure.
+  - Briefs are cached in `TopicSummary` (`kind='story'`, keyed by the timeline key), and the input hash prevents rewriting unchanged input.
+- `GET /api/timeline/brief?q=&category=` → `{ status: ready | pending | unavailable, brief? }`.
+- **Prompt and validation** (`summary-prompt.ts`, `summary-validate.ts`):
+  - Prompts carry headline, source, date and a 300-char excerpt only, oldest first.
+  - Report text is treated as untrusted and kept inside a `<reports>` block.
+  - The model is told to use only stated facts and to note disagreement between sources.
+  - The output is normalised and length-capped, with one retry on unusable output.
+- Migration `20261024171223_llm_summaries`: `TopicSummary.kind`, `inputHash`, `model`.
+- `/api/health` reports `llm: { id, model, state, detail }` (Ollama `/api/tags`, cached 30 s; tells you if the model isn't pulled).
+- **Web:** `StoryBrief` panel on the story page. It shows a skeleton and "Writing a summary…" while it polls every 3 s for up to ~2 min, then the paragraph and key points labelled "AI summary of N reports from M sources · model · may contain errors". When unavailable it renders nothing.
+- `.env.example`: `LLM_PROVIDER`, `OLLAMA_URL`, `OLLAMA_MODEL`, `LLM_TIMEOUT_MS`.
+- Tests for the Ollama provider, prompt, validator, brief service, topic summaries and timeline wiring. **114/114 passing.**
+
+#### Changed
+- Topic summaries (`SummariesService`) are written by the LLM. The previous headline heuristic is the fallback when the LLM is down or disabled, and is saved with `model='heuristic'`. The 4-hourly cron skips topics whose input hasn't changed.
+- `/api/summaries` lists topic summaries only (story briefs are read by key).
+- The web timeline request timeout dropped from 60 s to 30 s (the API's story deadline has been 15 s since ADR-008).
+
+#### Verified (llama3.2 3B, 8 GB Mac)
+- "MLB World Series 2026": the timeline answered in about 4 s and the brief was ready about 34 s later (first call loads the model). A repeat view is served from the DB in under 1 ms with no LLM call. Facts checked against the stored reports:
+  - Present in the reports: the 3-2 score, the 103.5 mph pitch, "best-of-seven", "first title".
+  - One key point was an inference not stated in the reports: "first World Series game win since 1982".
+- Topic summary (sports) about 10 s.
+- Ollama stopped: health shows `down: Ollama not reachable`, the timeline still answers in 34 ms, and the brief is immediately `unavailable` (panel hidden).
+- `LLM_PROVIDER=none`: `disabled`; topics use the heuristic.
 
 ### Longer article excerpts from RSS · 2026-10-24
 - Problem: cards and the detail view showed a single line (e.g. ESPN "World Series Game 1: Takeaways…").
@@ -198,13 +234,13 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **80%** | Single-column mobile layout, bottom tabs, all 6 routes, and overlay detail implemented. Capacitor native shell (Path A) packaging remaining. |
 | **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
 | **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
-| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **50%** | UI cards, comparison views, and cron scheduling in place. Real LLM inference (Gemini 2.5 Flash-Lite) pending. |
+| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
 | **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
 | **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 23 curated RSS feeds). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
 
-**Overall Platform Implementation:** **~64%** across ADR-001–007 (was ~63%; initial audit baseline 51%).
+**Overall Platform Implementation:** **~68%** across ADR-001–007 (was ~64%; initial audit baseline 51%).
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

@@ -26,6 +26,9 @@ export interface BookmarkRecord {
 export interface TopicSummaryRecord {
   id: string;
   topicName: string;
+  kind: string;
+  inputHash: string | null;
+  model: string | null;
   generatedAt: Date;
   summary: string;
   keyPoints: string[];

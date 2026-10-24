@@ -80,6 +80,12 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Keeps baseline infrastructure LLM costs between **$1.00 and $6.00/month** (~10.5M total tokens/month) and sub-50ms response times for end users reading cached summaries.
   * **Negative:** Summaries reflect a 3–6 hour periodic snapshot rather than instantaneous per-second synthesis unless triggered by a `critical` breaking event.
+* **Implementation notes (24 Oct 2026):**
+  * **Provider:** the LLM sits behind `LlmProvider` (`apps/api/src/llm/`), selected by `LLM_PROVIDER`. **Ollama with `llama3.2` (3B, local) is the interim provider**; Gemini / Claude / OpenAI are added later as one class each. Output is constrained by a JSON schema (Ollama `format`) and validated server-side.
+  * **Story briefs (extension of the cron-only rule):** story searches are open-ended, so their briefs can't be pre-computed. A brief is generated **in the background the first time a story is viewed** (never on the request path), stored in `TopicSummary` (`kind='story'`), and reused while its input hash (the set of report ids) is unchanged or it is under 30 min old. Topic summaries stay on the cron.
+  * **Inputs:** headline, source, date and an excerpt of at most 300 chars, up to 20 reports per story and 12 per topic, round-robin across sources. Report text is treated as untrusted and delimited.
+  * **Fallbacks:** if the LLM is down or disabled, topic summaries use the headline heuristic and story briefs are omitted (the UI hides the panel).
+  * **Cost when moving to a cloud model:** about 20 reports × ~100 tokens ≈ 2–3k input tokens + ~300 output tokens per brief. Briefs are cached and regenerated only when coverage changes.
 
 ---
 

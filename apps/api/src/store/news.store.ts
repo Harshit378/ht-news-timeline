@@ -325,8 +325,9 @@ export class NewsStore {
     return this.summaries.get(topicName.toLowerCase()) ?? null;
   }
 
+  /** Topic summaries only; story briefs are read by key. */
   listSummaries() {
-    return [...this.summaries.values()];
+    return [...this.summaries.values()].filter((s) => s.kind === 'topic');
   }
 
   async saveSummary(summary: TopicSummaryRecord) {
@@ -345,6 +346,9 @@ export class NewsStore {
         relatedTopics: summary.relatedTopics,
         trend: summary.trend,
         confidence: summary.confidence,
+        kind: summary.kind,
+        inputHash: summary.inputHash,
+        model: summary.model,
       },
     });
   }
