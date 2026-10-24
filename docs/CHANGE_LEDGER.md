@@ -1,0 +1,253 @@
+# Changelog & Implementation Ledger
+
+All notable changes and architectural transitions for the **News Timeline** project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [Unreleased]
+
+### Planned & In Progress
+- **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
+- **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
+- **WebSocket Exponential Backoff (ADR-005):** Upgrade `useWebSocket.ts` to compute true exponential backoff (`reconnectInterval * 2^attempts`) up to 5 retries.
+- **Background Bookmark Sync Trigger (ADR-006):** Connect client bookmark mutations in `FeedContext.tsx` to `requestBackgroundSync('sync-bookmarks')` and reconcile against `PUT /api/bookmarks`.
+- **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
+- **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+
+### ADR-004 — AI story briefs & topic summaries via `LlmProvider` (Ollama first) · 2026-10-24
+
+#### Added
+- **`LlmProvider` interface** (`apps/api/src/llm/`), chosen with `LLM_PROVIDER` (default `ollama`; `none` disables it):
+  - `OllamaProvider` calls `/api/chat` with structured output (`format` = JSON schema), `stream:false`, `keep_alive: 30m` and temperature 0.2, and runs one generation at a time.
+  - `DisabledProvider` is used for `none` or unknown values.
+  - Cloud providers plug in as one new class.
+- **Story briefs:** a "What happened" paragraph and 3–5 key points at the top of every story timeline, written from up to 20 reports.
+  - Reports are picked newest first, round-robin across sources, with repeated headlines skipped.
+  - `StoryBriefService` generates in the background on first view, never on the request path. It needs at least 3 reports from 2 sources, runs once per story at a time, keeps a brief at least 30 min, and backs off 5 min after a failure.
+  - Briefs are cached in `TopicSummary` (`kind='story'`, keyed by the timeline key), and the input hash prevents rewriting unchanged input.
+- `GET /api/timeline/brief?q=&category=` → `{ status: ready | pending | unavailable, brief? }`.
+- **Prompt and validation** (`summary-prompt.ts`, `summary-validate.ts`):
+  - Prompts carry headline, source, date and a 300-char excerpt only, oldest first.
+  - Report text is treated as untrusted and kept inside a `<reports>` block.
+  - The model is told to use only stated facts and to note disagreement between sources.
+  - The output is normalised and length-capped, with one retry on unusable output.
+- Migration `20261024171223_llm_summaries`: `TopicSummary.kind`, `inputHash`, `model`.
+- `/api/health` reports `llm: { id, model, state, detail }` (Ollama `/api/tags`, cached 30 s; tells you if the model isn't pulled).
+- **Web:** `StoryBrief` panel on the story page. It shows a skeleton and "Writing a summary…" while it polls every 3 s for up to ~2 min, then the paragraph and key points labelled "AI summary of N reports from M sources · model · may contain errors". When unavailable it renders nothing.
+- `.env.example`: `LLM_PROVIDER`, `OLLAMA_URL`, `OLLAMA_MODEL`, `LLM_TIMEOUT_MS`.
+- Tests for the Ollama provider, prompt, validator, brief service, topic summaries and timeline wiring. **114/114 passing.**
+
+#### Changed
+- Topic summaries (`SummariesService`) are written by the LLM. The previous headline heuristic is the fallback when the LLM is down or disabled, and is saved with `model='heuristic'`. The 4-hourly cron skips topics whose input hasn't changed.
+- `/api/summaries` lists topic summaries only (story briefs are read by key).
+- The web timeline request timeout dropped from 60 s to 30 s (the API's story deadline has been 15 s since ADR-008).
+
+#### Verified (llama3.2 3B, 8 GB Mac)
+- "MLB World Series 2026": the timeline answered in about 4 s and the brief was ready about 34 s later (first call loads the model). A repeat view is served from the DB in under 1 ms with no LLM call. Facts checked against the stored reports:
+  - Present in the reports: the 3-2 score, the 103.5 mph pitch, "best-of-seven", "first title".
+  - One key point was an inference not stated in the reports: "first World Series game win since 1982".
+- Topic summary (sports) about 10 s.
+- Ollama stopped: health shows `down: Ollama not reachable`, the timeline still answers in 34 ms, and the brief is immediately `unavailable` (panel hidden).
+- `LLM_PROVIDER=none`: `disabled`; topics use the heuristic.
+
+### Longer article excerpts from RSS · 2026-10-24
+- Problem: cards and the detail view showed a single line (e.g. ESPN "World Series Game 1: Takeaways…").
+- Feeds now keep up to ~1,000 chars (`MAX_EXCERPT_CHARS`, cut at a sentence end, never mid-word): the longer of `description` / `summary` / `content:encoded`, with "Continue reading…" boilerplate removed. Still excerpt only, never full bodies (ADR-008).
+- Re-polls upgrade already-stored rows when the new excerpt is longer (and fill in a missing image), because `createMany` skips existing rows. This also replaces GDELT's title-only excerpts when RSS carries the same URL.
+- Measured result (avg chars): Ars Technica 78 → 855, NASA 347 → 853, The Guardian 400 cap → 664, The Verge 337 → 598.
+- Not fixable from RSS: BBC, ESPN, Al Jazeera, BBC Sport and NPR only publish 100–200 chars. Next: an AI "story brief" per timeline (ADR-004, Ollama) that synthesizes a paragraph from all sources.
+- Note: a one-off reset of `etag` / `lastModified` is needed after changing how feeds are parsed, otherwise 304 responses keep the old text.
+
+### Fix — CORS blocked the web dev server · 2026-10-24
+- `nx serve web` runs on `localhost:4200`, but the API only allowed `localhost:3000`, so every browser call failed with "Origin … is not allowed by Access-Control-Allow-Origin" and the story page showed "Couldn't reach the newsroom". Added `apps/api/src/cors.ts` (`isAllowedOrigin`, with tests): outside production any `localhost` / `127.0.0.1` / `[::1]` / private-LAN origin on any port is allowed; in production only `CORS_ORIGIN` and the Capacitor origins are. Requests without an Origin header are unaffected. Restart the API to apply.
+
+### Tooling · 2026-10-24
+- Added `pnpm clean` (removes `dist/`, `.next/`, `apps/web/.next`, `apps/web/out`, `tsconfig.tsbuildinfo`) and `pnpm clean:all` (also runs `nx reset`). Documented in `README.md`.
+
+### ADR-008 steps 2 & 4 — `NewsProvider` interface + curated RSS archive · 2026-10-24
+
+#### Added
+- **`NewsProvider` interface** (`apps/api/src/ingestion/providers/`) with `gdelt-doc` and `rss` providers registered under the `NEWS_PROVIDERS` token. **`NewsSearchService`** fans a story query out to every searchable provider with a per-provider timeout (25 s) and merges the results; `degraded` is set when any provider fails.
+- **Curated RSS ingestion:** 23 publisher feeds covering all 10 categories (BBC, Guardian, NPR, Al Jazeera, Ars Technica, The Verge, NASA, ESPN, BBC Sport), listed in `apps/api/src/rss/curated-feeds.ts` and all verified reachable. `RssIngestionService` seeds them on boot and polls every 10 min, 4 at a time:
+  - conditional GET (ETag / Last-Modified → 304)
+  - tracking-param URL normalization, with the same sha1 id scheme as GDELT so cross-source duplicates collapse
+  - dates clamped to now
+  - feeds that fail 5 polls in a row are retried at most hourly
+  - user feeds are polled too
+- Migration `20261024144748_rss_ingestion`: new `RssFeed` columns `origin`, `source`, `etag`, `lastModified`, `lastItemAt`, `lastError`, `failureCount`.
+- **GDELT cooldown breaker:** a 429 pauses GDELT for 2 min, doubling to 15 min. Queued and new requests fail fast with `GdeltCoolingDownError`, with no network call and no queue wait.
+- `/api/health` reports `providers[]` (state, cooldownUntil, lastSuccessAt, lastError) and `rss: { active, failing }`.
+- Tests: `rss.service.spec.ts`, `rss-ingestion.service.spec.ts`, `news-search.service.spec.ts`, `gdelt-doc.service.spec.ts`, plus search-term cases in `news.store.spec.ts`. **83/83 passing.**
+
+#### Changed
+- GDELT DOC is now a fallback (amends ADR-003). Story search makes **one 1-week `HybridRel` request** instead of two 3-month passes, 429s are no longer retried, and category ingestion runs **hourly** instead of every 15 min. On boot, RSS runs first, then GDELT.
+- `TimelineController` uses `NewsSearchService` instead of GDELT directly. `STORY_DEADLINE_MS` dropped from 50 s to **15 s**.
+- **Archive search is word-based** (`NewsStore.searchArticles`):
+  - words can match in any order across headline, excerpt and source
+  - bare numbers such as years are ignored
+  - queries of 3+ words may miss one word
+  - results are ranked by match count, then date
+
+  Result: "MLB World Series 2026" went from 0 items to 12 ESPN stories, answered in about 30 ms while GDELT was cooling down.
+- RSS parser: element text is read safely (`#text` objects and CDATA; fixes `"[object Object]"` guids and titles), Atom `rel="alternate"` links are picked, images come from `media:content` (largest), `media:thumbnail`, image enclosures or inline `<img>`, HTML entities are decoded, and up to 50 items are read per feed (was 30).
+- `DELETE /api/rss/feeds/:id` on a curated feed disables it instead of deleting it, because seeding would otherwise bring it back. User feeds are still deleted.
+- Memory mode keeps only the newest 5,000 articles.
+
+#### Security
+- **SSRF guard for server-polled feeds:** the host is resolved and rejected if any address is loopback, private, CGNAT, link-local/metadata (`169.254.169.254`), multicast or reserved, including IPv4-mapped IPv6. Redirects are followed manually (at most 3), and every hop is checked.
+
+#### Notes
+- Verified against Postgres: the first poll stored 472 RSS items from 23 feeds in about 2 s with 0 failures. The DB then held 728 articles across all categories, and feeds with validators returned 304 on re-poll.
+- A second API instance on the same IP tripped GDELT's limit; the breaker opened and timelines kept answering from the archive.
+
+### ADR-002 completion — PostgreSQL as source of truth (+ ADR-008 step 1) · 2026-10-24
+
+#### Added
+- **First Prisma migration** `apps/api/prisma/migrations/20261024134701_init/` (all models plus the new tables below). Root scripts `db:generate`, `db:migrate`, `db:deploy`, `db:status`, `db:studio`; `postinstall` runs `prisma generate`.
+- **Story persistence (ADR-008 step 1):** `Story` (unique `key` = sanitized query + `|category`, `firstSeen`/`lastSeen`/`lastFetchedAt`) and `StoryArticle` join tables. `NewsStore.saveStory` / `getStory`.
+- **`Article.inFeed`** flag (story-only articles = `false`), `Article.updatedAt`, a unique index on `Article.url`, and indexes `(inFeed, publishedAt DESC)` and `EventUpdate(eventId, timestamp DESC)`.
+- `/api/health` now reports `migrations: ok | pending | n/a` and article/story counts.
+- Tests: `apps/api/src/store/news.store.spec.ts` (memory-mode story/feed behaviour, bookmark guard). Three new `timeline.controller.spec.ts` cases: fresh stored story skips GDELT, stale story is the GDELT-failure fallback, a persist failure still answers. **66/66 passing.**
+- Docs: root `README.md` rewritten from the create-next-app boilerplate (quick start, database, dev, mobile commands); "Database setup" section in `docs/README.md`; ADR-002 implementation notes.
+
+#### Changed
+- **`NewsStore` reads from Postgres** when connected. Feed, article, search, trending, breaking, topics, categories and bookmarks are queried on demand instead of bulk-loaded into Maps at boot; only summaries, RSS feeds and live events are cached. Store read methods are now `async`, and their callers were updated (`feed`, `articles`, `search`, `trending`, `breaking`, `topics`, `bookmarks`, `health` controllers and `SummariesService`).
+- `GET /api/feed` paginates in SQL (`skip`/`take`, one extra row for `hasMore`) using the `(category, publishedAt DESC)` index (verified with `EXPLAIN`).
+- In postgres mode, `/api/search` (and the store matches merged into `/api/timeline`) also covers stored story articles.
+- `TimelineController` checks the stored `Story` before calling GDELT, so a story fetched within 15 min is served from Postgres (survives restarts; measured 54 ms). A stale stored story becomes the `degraded` fallback instead of an empty list. GDELT results are persisted and returned under their canonical stored ids.
+- `PrismaService` falls back to the in-memory store when the DB is reachable but not migrated (logs "run `pnpm db:deploy`"). `main.ts` enables shutdown hooks.
+- Live-event updates use the DB-generated id. Sample live events are seeded into Postgres when the table is empty.
+- `.env.example`: quoted `DATABASE_URL` with `connection_limit=10&pool_timeout=20` pool params and PgBouncer guidance.
+
+#### Fixed
+- **Bookmarks on story-timeline articles were silently dropped** (`putBookmarks` skipped ids missing from the in-memory feed map). They now persist; ids never seen are returned in a new `missing` field.
+
+#### Notes
+- Local DB: Homebrew `postgresql@16` (Docker isn't installed here), role/db `timeline`. The Prisma client auto-loads the root `.env`, so to force memory mode use `DATABASE_URL=` (empty), not `env -u`.
+- A live `/api/timeline?q=world series` check returned `degraded` because GDELT answered HTTP 429. The persistence path was verified against the real DB with a scratch script instead (URL dedupe, firstSeen/lastSeen, inFeed promotion, story bookmarks).
+
+---
+
+## [0.2.0] - 2026-10-24
+
+### Mobile-First Single-Column Pivot & NestJS Data Layer Integration (Phases 1–4)
+
+Architectural pivot from a desktop-centric 3-column interface to a mobile-first single-column web and native-ready architecture backed by NestJS and GDELT news ingestion.
+
+#### Added
+- **Core Tab Routes & Navigation (Phase 3):**
+  - Implemented all 6 primary tab destinations in `apps/web/app/` using export-safe query parameters:
+    - `/` (Home Feed): Single-column chronological timeline with date-grouped rails, `PageHeader`, `FilterChips`, and `BreakingBanner`.
+    - `/search`: Live debounced (300ms) search hitting `GET /api/search`, recent searches tracking (`lib/recent-searches.ts`), trending topic chips (`GET /api/trending`), and timeline search deep-links.
+    - `/story?q=&category=`: Chronological story-tracing timeline view (`components/timeline/StoryTimeline.tsx`) consuming `GET /api/timeline`, sorting oldest-to-newest, auto-calculating day/month buckets (`lib/timeline-grouping.ts`), and supporting offline fallback.
+    - `/topics`: 10-category visual grid styled with `CORE_TOPICS` tints and live article counts from `GET /api/topics`.
+    - `/live`: Real-time live event dashboard mounting `LiveEventsContext` and `LiveEventTimeline`.
+    - `/settings`: Preference center for Dark/Light/System theme toggling, mounted `RSSFeedsManager`, and diagnostic server URLs.
+  - Added `app/not-found.tsx` to gracefully redirect legacy `/news/<topic>` URLs to `/story/?q=`.
+- **Mobile Shell & Gestures (Phase 2):**
+  - Added `AppShell` in `LayoutWrapper` with viewport-safe bottom padding (`env(safe-area-inset-bottom)`) and overlay management.
+  - Added touch-first interaction sheet (`hooks/useLongPress.ts` and `shell/ArticleActionSheet.tsx`) supporting long-press actions (Bookmark, Share, Mark Read/Unread) on cards and bookmark rows.
+  - Added `shell/ArticleUrlSync.tsx` synchronizing the active article with the `?article=` URL query parameter to support deep linking, browser back, and native Android back navigation.
+  - Added shared UI components: `components/timeline/TimelineList.tsx`, `TimelineSkeleton.tsx`, `shell/EmptyState.tsx`, `lib/timeline-grouping.ts`, `lib/native.ts`, and `lib/category-style.ts`.
+- **Chronological Story Timeline API (Phase 4):**
+  - Added `GET /api/timeline?q=&category=` endpoint in `apps/api/src/rest/timeline.controller.ts` providing chronological multi-source coverage.
+  - Added `dedupeChronological` utility to remove duplicate publisher reports across matching URLs or normalized headlines.
+  - Added 15-minute query caching (max 200 items) and collapsed concurrent identical GDELT requests.
+  - Added `searchStory(q)` in `GdeltDocService` utilizing a two-pass query strategy: Pass 1 (`DateAsc`, 75 records) for origin stories, Pass 2 (`HybridRel`, 175 records) for key developments up to the present.
+  - Added `sanitizeStoryQuery` to strip GDELT operators and short words.
+  - Added `rememberStoryArticles` LRU cache (5,000 capacity) in `NewsStore` so single-article lookups (`/api/articles/:id`) succeed without polluting the general feed.
+  - Added automated test suites: `apps/api/src/rest/timeline.controller.spec.ts` and `apps/web/__tests__/timeline-grouping.test.ts` (11/11 passing via Vitest).
+- **Design System Tokens & Brand Assets (Phase 1):**
+  - Added runtime CSS variables in `globals.css` mapped to Tailwind `@theme` utilities (`bg-bg`, `text-ink`, `text-muted`, `bg-surface`, `text-gold`, `text-accent`, `--scrim`, `sheet-up`, `.no-scrollbar`).
+  - Added `lib/theme-boot.ts` inline script executed in `<head>` to prevent flash of unstyled theme on page load.
+  - Added high-resolution PWA and native mobile icon assets: `public/icon-192x192.png`, `public/icon-512x512.png`, and `resources/icon.png` (1024x1024 native source).
+
+#### Changed
+- **Data Layer & Backend Migration (Phases 2 & 4):**
+  - Migrated `FeedContext` from client-side NewsAPI to the NestJS API client (`lib/api-client.ts`), supporting paginated feed loading, cached offline fallback, and bundled offline mock stories.
+  - Upgraded bookmark persistence to `ht_timeline_saved_v2` storing complete article snapshots (with automatic migration from v1 ID lists).
+  - Configured CORS in `main.ts` to allow `capacitor://localhost` and `http://localhost`.
+  - Refactored `rssService` to share the unified `api-client` instance with consistent `/api` base URL formatting.
+- **Article Detail View (Phase 2):**
+  - Rebuilt `ArticleDetailPanel` as an overlay-only view with a 200ms `slide-in-right` animation, scroll-tracked 2px accent reading progress bar, Playfair Display typography, gold monospace byline, drop caps, body scroll locking, and a "Trace this story from the beginning" link.
+- **Timeline Feed Layout (Phase 2):**
+  - Converted `TimelineFeed` to a single mobile-optimized column (`max-w-lg`) with infinite scrolling via `IntersectionObserver`.
+  - Restyled all timeline items using design tokens: `NewsCard`, `TimelineDot`, `FilterChips` (44px touch targets), `BreakingBanner`, `BookmarkRow`, and `BottomTabBar`.
+- **Theming & Preferences (Phase 1):**
+  - Rewrote `ThemeContext` to manage `data-theme="dark|light"` on the root document with user preference persistence (`dark | light | system`, default `dark`).
+- **PWA Manifest & Layout Metadata (Phase 1):**
+  - Updated `manifest.json` colors, app shortcuts (Feed, Search, Saved), and `layout.tsx` viewport settings (`viewportFit: cover`).
+
+#### Fixed
+- **TypeScript Compilation Errors (Phase 1):**
+  - Resolved build failures in `FeedContext.tsx:94` and `lib/feed-data.ts:4` where emoji records were missing `health`, `culture`, `sports`, and `opinion` keys by centralizing definitions in `CATEGORY_EMOJI` (`types/article.ts`).
+  - Fixed category inference mappings (`health` -> `health`, `sports` -> `sports`, `entertainment` -> `culture`) and removed pseudo-random `Math.random()` breaking news assignments.
+- **GDELT Category Ingestion Query Syntax (Phase 4):**
+  - Fixed pre-existing bug where GDELT DOC queries failed with syntax error `"Queries containing OR'd terms must be surrounded by ()"`, causing silent 0-article ingestion.
+- **GDELT Rate Limiting & Socket Dropping (Phase 4):**
+  - Implemented a unified rate-limiting queue enforcing >=5.5s delays between all GDELT requests, prioritised user searches, added 2x retry on HTTP 429 and dropped connections, and surfaced error responses.
+- **RSS Parser Atom Link Parsing (Phase 4):**
+  - Fixed bug in `rss.service.ts` where Atom `<link href>` objects were converted to string `"[object Object]"`.
+
+#### Removed
+- **Legacy Desktop Layout (Phase 2):**
+  - Eliminated desktop 3-column splits (`lg:flex-row`, inline 380px sidebar panes) across `TimelineFeed` and `ArticleDetailPanel`.
+  - Unmounted floating `<Chatbot />` from global layout to eliminate bottom tab navigation overlap.
+- **Third-Party NewsAPI Dependencies & Dead Code (Phases 2 & 3):**
+  - Deleted legacy desktop and NewsAPI routes and components:
+    - Pages: `news/page.tsx`, `news/[topic]/*`, `sports/*`
+    - Components: `header.tsx`, `Timeline.tsx`, `StoryCard.tsx`, `SearchTimeline.tsx`, `TopHeadlinesSection.tsx`, `PinnedTopics.tsx`
+    - Hooks & Services: `useNewsOrgArticles.ts`, `useApi.ts`, `services/everythingService.ts`, `services/topHeadlinesService.ts`, `services/newsOrgClient.ts`
+    - Data: `types/timeline.ts`, `data/topics.json`
+  - Dropped obsolete country/region selection setting that only applied to NewsAPI.
+
+---
+
+## [0.1.0] - 2026-10-24
+
+### Initial Prototype & Baseline Architecture
+
+#### Added
+- **Monorepo Setup & Frontend MVP:**
+  - Initialized Nx monorepo with Next.js 15.4.4, React 19.1.0, and Tailwind CSS 4 (`apps/web`).
+  - Basic timeline feed with date grouping, filter chips, breaking banner, and local storage bookmarks.
+  - Initial PWA assets: `manifest.json`, Service Worker (`public/sw.js`), and `PWAInitializer.tsx`.
+  - Phase 4 prototype feature modules: `features/live-events`, `features/source-comparison`, `features/ai-summaries`, and `features/rss-feeds`.
+- **Backend Service Framework (`apps/api`):**
+  - Initialized NestJS 11 backend with `@nestjs/platform-ws`, `@nestjs/schedule`, and Prisma ORM.
+  - Configured PostgreSQL 16 service in `docker-compose.yml`.
+  - Defined Prisma schema for `Article`, `Bookmark`, `LiveEvent`, `EventUpdate`, `TopicSummary`, and `RssFeed`.
+  - Implemented initial REST endpoints: Feed, Articles, Search, Trending, Topics, Breaking, Bookmarks, Events, Summaries, and RSS.
+  - Implemented GDELT DOC 2.0 ingestion scheduler and RSS XML/Atom parser service.
+  - Implemented WebSocket gateway (`/ws/events`) for live event streaming.
+
+---
+
+## Appendix: Architecture Decision Records (ADR) Compliance Ledger
+
+Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_records_adrs.md`](adr/architecture_decision_records_adrs.md):
+
+| ADR ID | Title | Status | Baseline Compliance | Current Compliance | Current State & Remaining Work |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **80%** | Single-column mobile layout, bottom tabs, all 6 routes, and overlay detail implemented. Capacitor native shell (Path A) packaging remaining. |
+| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
+| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
+| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
+| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
+| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
+| **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 23 curated RSS feeds). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
+
+**Overall Platform Implementation:** **~68%** across ADR-001–007 (was ~64%; initial audit baseline 51%).
+
+  ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
+  • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion
+    was rate-limited (429). Direct GDELT 1-week query worked but took ~15s; 3-month queries time out/fail.
+  • Added ADR-008 to docs/adr/architecture_decision_records_adrs.md (status: Proposed, amends ADR-003): News Search API for
+    recent/live (default candidate TheNewsAPI, alt GNews), curated RSS → PostgreSQL as our own archive, GDELT BigQuery for
+    deep history, Wikimedia for milestones; GDELT DOC demoted to ≤1-week discovery fallback.
+  • Pending decision: provider + monthly budget. No code changes yet.
+  • Housekeeping since Phase 4 (Phase 5 entry still to be written): docs moved into docs/ (adr/, planning/, phases/);
+    Nx TUI disabled in nx.json; service worker now registers only in production (dev ChunkLoadError fix).

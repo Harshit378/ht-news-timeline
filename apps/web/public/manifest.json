@@ -1,0 +1,73 @@
+{
+  "name": "News Timeline",
+  "short_name": "Timeline",
+  "description": "A dark editorial news app inspired by newspaper print culture: follow any story as a timeline, from its beginning to now.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0a0a0b",
+  "background_color": "#0a0a0b",
+  "categories": [
+    "news",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Timeline",
+      "short_name": "Feed",
+      "url": "/?source=pwa",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Search a story",
+      "short_name": "Search",
+      "url": "/search/?source=pwa",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Saved",
+      "short_name": "Saved",
+      "url": "/bookmarks/?source=pwa",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

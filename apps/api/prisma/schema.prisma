@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id             String     @id
+  headline       String
+  excerpt        String
+  body           String?
+  source         String
+  sourceDomain   String?
+  url            String?    @unique
+  category       String
+  publishedAt    DateTime
+  imageUrl       String?
+  sentiment      String?
+  bias           String?
+  importance     String     @default("normal")
+  storyClusterId String?
+  tone           Float?
+  /// false for articles fetched only for a story timeline: resolvable by id, kept out of feed/trending.
+  inFeed         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  bookmarks      Bookmark[]
+  stories        StoryArticle[]
+
+  @@index([category, publishedAt(sort: Desc)])
+  @@index([inFeed, publishedAt(sort: Desc)])
+  @@index([storyClusterId])
+}
+
+/// A searched story (GET /api/timeline?q=), keyed by sanitized query + category.
+model Story {
+  id            String         @id @default(cuid())
+  key           String         @unique
+  query         String
+  category      String?
+  firstSeen     DateTime?
+  lastSeen      DateTime?
+  lastFetchedAt DateTime
+  createdAt     DateTime       @default(now())
+  articles      StoryArticle[]
+}
+
+model StoryArticle {
+  storyId   String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@id([storyId, articleId])
+  @@index([articleId])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String   @default("local")
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, articleId])
+}
+
+model LiveEvent {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  description String
+  category    String
+  status      String
+  startDate   DateTime
+  endDate     DateTime?
+  lastUpdated DateTime      @updatedAt
+  updates     EventUpdate[]
+}
+
+model EventUpdate {
+  id         String    @id @default(cuid())
+  eventId    String
+  event      LiveEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  timestamp  DateTime  @default(now())
+  message    String
+  importance String    @default("normal")
+  sources    String[]  @default([])
+
+  @@index([eventId, timestamp(sort: Desc)])
+}
+
+/// Topic summaries (kind "topic", cron) and AI story briefs (kind "story", keyed by timeline key).
+model TopicSummary {
+  id            String   @id @default(cuid())
+  topicName     String   @unique
+  kind          String   @default("topic")
+  /// sha1 of the article ids the summary was written from; unchanged input → no regeneration.
+  inputHash     String?
+  /// Model that wrote it ("heuristic" when no LLM was available).
+  model         String?
+  generatedAt   DateTime @default(now())
+  summary       String
+  keyPoints     String[]
+  sentiment     String
+  articleCount  Int
+  sourceCount   Int
+  relatedTopics String[]
+  trend         String
+  confidence    Float
+}
+
+model RssFeed {
+  id           String    @id @default(cuid())
+  title        String
+  url          String    @unique
+  description  String?
+  category     String
+  isActive     Boolean   @default(true)
+  /// 'curated' (seeded publisher feeds, ADR-008) or 'user' (added via /api/rss/feeds).
+  origin       String    @default("user")
+  /// Display name for articles from this feed, e.g. "BBC News"; falls back to title.
+  source       String?
+  etag         String?
+  lastModified String?
+  lastChecked  DateTime?
+  lastItemAt   DateTime?
+  lastError    String?
+  failureCount Int       @default(0)
+  itemCount    Int       @default(0)
+  addedAt      DateTime  @default(now())
+}

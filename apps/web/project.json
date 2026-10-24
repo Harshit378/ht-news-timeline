@@ -1,0 +1,86 @@
+{
+  "name": "web",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/web",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": [
+        "{projectRoot}/.next",
+        "{projectRoot}/out"
+      ],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "apps/web"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "apps/web"
+        },
+        "production": {}
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "web:build",
+        "dev": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "web:build:development",
+          "hmr": true
+        },
+        "production": {
+          "buildTarget": "web:build:production",
+          "dev": false
+        }
+      }
+    },
+    "export": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node -e \"require('fs').accessSync('apps/web/out/index.html')\" && echo 'Static export ready in apps/web/out'"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "cap-sync": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "npx cap sync",
+        "cwd": "apps/web"
+      }
+    },
+    "cap-ios": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "cap-sync"
+      ],
+      "options": {
+        "command": "npx cap open ios",
+        "cwd": "apps/web"
+      }
+    },
+    "cap-android": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "cap-sync"
+      ],
+      "options": {
+        "command": "npx cap open android",
+        "cwd": "apps/web"
+      }
+    }
+  }
+}
