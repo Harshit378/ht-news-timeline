@@ -4,6 +4,7 @@ import type { AddressInfo } from 'net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { EventsGateway, POLICY_VIOLATION } from './events.gateway';
 import { EventsController, assertCanPost, parseUpdateBody } from './events.controller';
+import { InMemoryEventBus } from './event-bus';
 
 /** Real ws server whose connections go through the gateway, as WsAdapter does. */
 async function serve(gateway: EventsGateway) {
@@ -56,7 +57,9 @@ describe('EventsGateway', () => {
     const store = {
       addEventUpdate: vi.fn(async () => ({ event: { id: 'e1', status: 'ongoing' }, update })),
     };
-    const controller = new EventsController(store as never, gateway);
+    const bus = new InMemoryEventBus();
+    bus.subscribe((m) => gateway.broadcast(m));
+    const controller = new EventsController(store as never, bus);
     await controller.createUpdate({ eventId: 'e1', message: 'Polls closed', importance: 'high' });
 
     const msg = JSON.parse(await client.nextMessage());

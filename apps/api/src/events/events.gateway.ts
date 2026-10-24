@@ -11,8 +11,8 @@ export const HEARTBEAT_MS = 30_000;
 export const POLICY_VIOLATION = 1008;
 
 /**
- * Live event updates (ADR-005). Single instance: clients live in memory, so running more than one API
- * instance needs sticky sessions or a Redis pub/sub fan-out in `broadcast`.
+ * Live event updates (ADR-005). Clients live in memory per instance; updates reach every instance through
+ * the `EventBus` (Redis when `REDIS_URL` is set), which calls `broadcast` here.
  */
 @WebSocketGateway({ path: '/ws/events' })
 export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {

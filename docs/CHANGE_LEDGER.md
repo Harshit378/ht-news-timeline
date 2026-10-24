@@ -11,10 +11,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Planned & In Progress
 - **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
 - **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
-- **Live events scale-out (ADR-005 follow-up):** sticky sessions or Redis pub/sub fan-out in `EventsGateway.broadcast` before running more than one API instance.
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+
+### ADR-005 — Multi-instance fan-out via an event bus · 2026-10-25
+- Added `apps/api/src/events/event-bus.ts`: `EventBus` with `InMemoryEventBus` (default) and `RedisEventBus` (`ioredis`, used when `REDIS_URL` is set). `EventsController` publishes to the bus; `EventsFanout` delivers bus messages to this instance's `EventsGateway.broadcast`. Every instance, including the publisher, receives each update once from Redis.
+- If Redis is down or a publish fails, the update is delivered locally only, with a warning, instead of being lost. The subscriber connection re-subscribes on reconnect.
+- `docker-compose.yml`: `redis` service under the `scale` profile (`docker compose --profile scale up -d`).
+- Tests: `event-bus.spec.ts` (two instances over a fake Redis receive one copy each; fallback when Redis is down or publish throws; other channels and malformed messages ignored; in-memory default). `pnpm test` 154/154.
+- Live check: against the running dev API (in-memory bus), a `POST /api/events` reached a connected WebSocket client. Not run: two instances over a real Redis, because neither Docker nor Redis is installed on this machine.
 
 ### ADR-004 — AI story briefs & topic summaries via `LlmProvider` (Ollama first) · 2026-10-24
 
@@ -289,7 +295,7 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
 | **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
 | **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
-| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **95%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`. Remaining: Redis/sticky-session fan-out before scaling out. |
+| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **100%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`; Redis fan-out across instances when `REDIS_URL` is set. |
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **90%** | Per-device bookmark backup via outbox + Background Sync, service worker v3 (network-first pages, hashed-asset cache, API allowlist cache, offline page), CSP meta. Remaining: host security headers once hosting is chosen; cross-device sync arrives with ADR-007 accounts. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
 | **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 33 curated RSS feeds incl. Times of India). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |

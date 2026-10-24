@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Headers,
+  Inject,
   NotFoundException,
   Param,
   Post,
@@ -12,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { NewsStore } from '../store/news.store';
-import { EventsGateway } from './events.gateway';
+import { EVENT_BUS, EventBus } from './event-bus';
 
 const IMPORTANCE = new Set(['critical', 'high', 'normal', 'low']);
 const MAX_MESSAGE = 1000;
@@ -53,7 +54,7 @@ export function parseUpdateBody(body: unknown): { eventId: string; message: stri
 export class EventsController {
   constructor(
     private readonly store: NewsStore,
-    private readonly gateway: EventsGateway,
+    @Inject(EVENT_BUS) private readonly bus: EventBus,
   ) {}
 
   @Get()
@@ -74,7 +75,8 @@ export class EventsController {
     const { eventId, message, importance } = parseUpdateBody(body);
     const result = await this.store.addEventUpdate(eventId, message, importance);
     if (!result) throw new NotFoundException();
-    this.gateway.broadcast({
+    // Through the bus, so clients connected to any API instance get it (ADR-005).
+    await this.bus.publish({
       eventId,
       update: result.update,
       status: result.event.status,

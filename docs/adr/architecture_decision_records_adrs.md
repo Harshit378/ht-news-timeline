@@ -108,7 +108,8 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Socket URL:** `NEXT_PUBLIC_WS_URL`, or derived from `NEXT_PUBLIC_API_URL` (`http://host:4000/api` → `ws://host:4000/ws/events`).
   * **Gateway:** 30 s ping/pong heartbeat drops half-open sockets; browser connections whose `Origin` fails the CORS policy (`isAllowedOrigin`) are closed with 1008.
   * **Posting:** `POST /api/events` requires `Authorization: Bearer $EVENTS_ADMIN_TOKEN`. Without a token it is open in development and returns 403 in production. Body is validated (message 1–1000 chars, importance in the allowed set).
-  * **Scaling:** still single-instance. Before running more than one API instance, add sticky sessions or a Redis pub/sub fan-out in `EventsGateway.broadcast`.
+  * **Scaling:** see the scale-out note below.
+* **Scale-out (25 Oct 2026):** updates go through an `EventBus`. With `REDIS_URL` set, Redis pub/sub fans each update out to every API instance, so no sticky sessions are needed for delivery (a client still reconnects to any instance and resyncs via `GET /api/events`). Without it the bus is in-memory (single instance).
 
 ---
 
