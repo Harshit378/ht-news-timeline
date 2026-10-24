@@ -27,6 +27,8 @@ export interface StoryTimelineResponse {
   query: string;
   /** Global sources unreachable — items are partial. */
   degraded?: boolean;
+  /** Older history from BigQuery (ADR-008): 'pending' = still being fetched, poll again. */
+  backfill?: 'pending' | 'done' | 'unavailable';
   firstSeen: string | null;
   lastSeen: string | null;
   items: FeedArticle[];

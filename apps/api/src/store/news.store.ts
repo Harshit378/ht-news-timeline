@@ -33,6 +33,7 @@ export class NewsStore {
   private storyArticles = new Map<string, ArticleRecord>();
   private bookmarks = new Map<string, BookmarkRecord>();
   private summaries = new Map<string, TopicSummaryRecord>();
+  private backfilled = new Map<string, Date>();
   private feeds = new Map<string, RssFeedRecord>();
   private events = new Map<string, LiveEventRecord>();
   private dbReady = false;
@@ -284,6 +285,18 @@ export class NewsStore {
       });
     });
     return saved;
+  }
+
+  /** When the BigQuery history backfill last ran for a story (ADR-008 step 5); null if never. */
+  async getBackfilledAt(key: string): Promise<Date | null> {
+    if (!this.dbReady) return this.backfilled.get(key) ?? null;
+    const story = await this.prisma.story.findUnique({ where: { key }, select: { backfilledAt: true } });
+    return story?.backfilledAt ?? null;
+  }
+
+  async markBackfilled(key: string, at = new Date()) {
+    this.backfilled.set(key, at);
+    if (this.dbReady) await this.prisma.story.updateMany({ where: { key }, data: { backfilledAt: at } });
   }
 
   async stats() {

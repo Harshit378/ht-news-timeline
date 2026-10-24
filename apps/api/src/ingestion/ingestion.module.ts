@@ -5,6 +5,7 @@ import { GdeltBigQueryService } from './gdelt-bigquery.service';
 import { GdeltDocService } from './gdelt-doc.service';
 import { IngestionScheduler } from './ingestion.scheduler';
 import { NewsSearchService } from './news-search.service';
+import { StoryBackfillService } from './story-backfill.service';
 import { GdeltDocProvider } from './providers/gdelt-doc.provider';
 import { NewsSearchApiProvider } from './providers/news-search-api.provider';
 import { NEWS_PROVIDERS } from './providers/news-provider';
@@ -16,7 +17,12 @@ import { WikimediaProvider } from './providers/wikimedia.provider';
   imports: [SummariesModule, RssModule],
   providers: [
     GdeltDocService,
-    GdeltBigQueryService,
+    {
+      provide: GdeltBigQueryService,
+      useFactory: (usage: UsageTracker) => new GdeltBigQueryService(usage),
+      inject: [UsageTracker],
+    },
+    StoryBackfillService,
     GdeltDocProvider,
     RssProvider,
     UsageTracker,
@@ -35,6 +41,6 @@ import { WikimediaProvider } from './providers/wikimedia.provider';
     NewsSearchService,
     IngestionScheduler,
   ],
-  exports: [NewsSearchService, NEWS_PROVIDERS, UsageTracker],
+  exports: [NewsSearchService, NEWS_PROVIDERS, UsageTracker, StoryBackfillService, GdeltBigQueryService],
 })
 export class IngestionModule {}

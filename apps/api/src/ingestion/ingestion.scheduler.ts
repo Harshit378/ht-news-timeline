@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { RssIngestionService } from '../rss/rss-ingestion.service';
 import { NewsStore } from '../store/news.store';
-import { GdeltBigQueryService } from './gdelt-bigquery.service';
 import { NEWS_PROVIDERS, NewsProvider } from './providers/news-provider';
 import { SummariesService } from '../summaries/summaries.service';
 
@@ -14,7 +13,6 @@ export class IngestionScheduler implements OnModuleInit {
   constructor(
     @Inject(NEWS_PROVIDERS) private readonly providers: NewsProvider[],
     private readonly rss: RssIngestionService,
-    private readonly bigQuery: GdeltBigQueryService,
     private readonly store: NewsStore,
     private readonly summaries: SummariesService,
   ) {}
@@ -35,7 +33,6 @@ export class IngestionScheduler implements OnModuleInit {
   @Cron('0 * * * *')
   async refreshGdelt() {
     await this.ingest('gdelt-doc');
-    await this.bigQuery.queryRecentEvents();
   }
 
   @Cron('0 */4 * * *')

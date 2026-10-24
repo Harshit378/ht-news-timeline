@@ -33,6 +33,10 @@ function makeStore(local: ArticleRecord[] = [], stored: { lastFetchedAt: Date; i
   };
 }
 
+function makeBackfill() {
+  return { ensure: vi.fn(async () => ({ state: 'unavailable' })) };
+}
+
 function makeBriefs() {
   return { ensure: vi.fn(async () => undefined), get: vi.fn(() => ({ status: 'pending' })) };
 }
@@ -68,7 +72,7 @@ describe('TimelineController', () => {
       })),
     };
     const store = makeStore([rec('s1', '2026-10-20T00:00:00Z', 'Latest update')]);
-    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never, makeBackfill() as never);
 
     const res = await ctrl.timeline('Election  results', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['g1', 'g2', 's1']);
@@ -85,7 +89,7 @@ describe('TimelineController', () => {
   it('falls back to archive matches when providers fail', async () => {
     const providers = { search: vi.fn(async () => Promise.reject(new Error('429'))) };
     const store = makeStore([rec('s1', '2026-10-20T00:00:00Z', 'Local match')]);
-    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     const res = await ctrl.timeline('anything', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['s1']);
     expect(res.degraded).toBe(true);
@@ -101,7 +105,7 @@ describe('TimelineController', () => {
           ),
       ),
     };
-    const ctrl = new TimelineController(makeStore() as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(makeStore() as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     const p1 = ctrl.timeline('mars mission', undefined);
     const p2 = ctrl.timeline('Mars mission', undefined);
     await new Promise((r) => setTimeout(r, 0)); // let both stored-story lookups settle
@@ -120,7 +124,7 @@ describe('TimelineController', () => {
           ),
       ),
     };
-    const ctrl = new TimelineController(makeStore() as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(makeStore() as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     ctrl.deadlineMs = 20;
     const first = await ctrl.timeline('slow story', undefined);
     expect(first.degraded).toBe(true);
@@ -136,7 +140,7 @@ describe('TimelineController', () => {
   it('serves a fresh stored story without calling providers', async () => {
     const providers = { search: vi.fn() };
     const store = makeStore([], { lastFetchedAt: new Date(), items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
-    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     const res = await ctrl.timeline('persisted story', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['p1']);
     expect(res.degraded).toBe(false);
@@ -147,7 +151,7 @@ describe('TimelineController', () => {
     const providers = { search: vi.fn(async () => Promise.reject(new Error('429'))) };
     const stale = new Date(Date.now() - 60 * 60 * 1000);
     const store = makeStore([], { lastFetchedAt: stale, items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
-    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     const res = await ctrl.timeline('persisted story', undefined);
     expect(providers.search).toHaveBeenCalledTimes(1);
     expect(res.items.map((i) => i.id)).toEqual(['p1']);
@@ -158,7 +162,7 @@ describe('TimelineController', () => {
     const providers = { search: vi.fn(async () => ({ items: [rec('g1', '2026-08-01T00:00:00Z', 'x')], degraded: false })) };
     const store = makeStore();
     store.saveStory.mockRejectedValueOnce(new Error('db down'));
-    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never);
+    const ctrl = new TimelineController(store as never, providers as never, makeBriefs() as never, makeBackfill() as never);
     const res = await ctrl.timeline('db outage', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['g1']);
     expect(res.degraded).toBe(false);
@@ -197,7 +201,7 @@ describe('TimelineController', () => {
   });
 
   it('rejects an empty query', async () => {
-    const ctrl = new TimelineController(makeStore() as never, { search: vi.fn() } as never, makeBriefs() as never);
+    const ctrl = new TimelineController(makeStore() as never, { search: vi.fn() } as never, makeBriefs() as never, makeBackfill() as never);
     await expect(ctrl.timeline('  ', undefined)).rejects.toThrow('q is required');
   });
 });

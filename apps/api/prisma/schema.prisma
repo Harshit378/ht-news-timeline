@@ -46,6 +46,8 @@ model Story {
   firstSeen     DateTime?
   lastSeen      DateTime?
   lastFetchedAt DateTime
+  /// When the BigQuery history backfill last ran for this story (ADR-008 step 5); limits repeat scans.
+  backfilledAt  DateTime?
   createdAt     DateTime       @default(now())
   articles      StoryArticle[]
 }
