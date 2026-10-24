@@ -45,6 +45,11 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** End-to-end TypeScript type safety across monorepo workspaces; modular dependency injection for cron workers, REST controllers, and WebSocket gateways.
   * **Negative:** Requires database migrations and connection pooling management in production.
+* **Implementation notes (24 Oct 2026):**
+  * Local Postgres: Homebrew `postgresql@16` or `docker compose up -d` (same `timeline/timeline` credentials). Migrations live in `apps/api/prisma/migrations/` and are applied with `pnpm db:deploy` (`pnpm db:migrate` in dev).
+  * Pooling: Prisma's pool is sized via `connection_limit` / `pool_timeout` on `DATABASE_URL`. In production, put PgBouncer (or a Neon/Supabase pooled URL with `pgbouncer=true`) in front and add a `directUrl` for migrations.
+  * Postgres is the read path: `NewsStore` queries articles and bookmarks on demand (feed pagination uses the `(category, publishedAt DESC)` / `(inFeed, publishedAt DESC)` indexes). Only the small tables (summaries, feeds, live events) are cached in memory. Without `DATABASE_URL`, or with an unmigrated DB, the API falls back to the in-memory store; `/api/health` reports `database` and `migrations`.
+  * `Article.inFeed = false` marks story-only articles (resolvable by id and bookmarkable, but kept out of the feed and trending). `Story` / `StoryArticle` persist `/api/timeline` results (ADR-008 step 1).
 
 ---
 

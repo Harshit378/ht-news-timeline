@@ -16,6 +16,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
 
+### ADR-002 completion — PostgreSQL as source of truth (+ ADR-008 step 1) · 2026-10-24
+
+#### Added
+- **First Prisma migration** `apps/api/prisma/migrations/20261024134701_init/` (all models plus the new tables below). Root scripts `db:generate`, `db:migrate`, `db:deploy`, `db:status`, `db:studio`; `postinstall` runs `prisma generate`.
+- **Story persistence (ADR-008 step 1):** `Story` (unique `key` = sanitized query + `|category`, `firstSeen`/`lastSeen`/`lastFetchedAt`) and `StoryArticle` join tables. `NewsStore.saveStory` / `getStory`.
+- **`Article.inFeed`** flag (story-only articles = `false`), `Article.updatedAt`, a unique index on `Article.url`, and indexes `(inFeed, publishedAt DESC)` and `EventUpdate(eventId, timestamp DESC)`.
+- `/api/health` now reports `migrations: ok | pending | n/a` and article/story counts.
+- Tests: `apps/api/src/store/news.store.spec.ts` (memory-mode story/feed behaviour, bookmark guard). Three new `timeline.controller.spec.ts` cases: fresh stored story skips GDELT, stale story is the GDELT-failure fallback, a persist failure still answers. **66/66 passing.**
+- Docs: root `README.md` rewritten from the create-next-app boilerplate (quick start, database, dev, mobile commands); "Database setup" section in `docs/README.md`; ADR-002 implementation notes.
+
+#### Changed
+- **`NewsStore` reads from Postgres** when connected. Feed, article, search, trending, breaking, topics, categories and bookmarks are queried on demand instead of bulk-loaded into Maps at boot; only summaries, RSS feeds and live events are cached. Store read methods are now `async`, and their callers were updated (`feed`, `articles`, `search`, `trending`, `breaking`, `topics`, `bookmarks`, `health` controllers and `SummariesService`).
+- `GET /api/feed` paginates in SQL (`skip`/`take`, one extra row for `hasMore`) using the `(category, publishedAt DESC)` index (verified with `EXPLAIN`).
+- In postgres mode, `/api/search` (and the store matches merged into `/api/timeline`) also covers stored story articles.
+- `TimelineController` checks the stored `Story` before calling GDELT, so a story fetched within 15 min is served from Postgres (survives restarts; measured 54 ms). A stale stored story becomes the `degraded` fallback instead of an empty list. GDELT results are persisted and returned under their canonical stored ids.
+- `PrismaService` falls back to the in-memory store when the DB is reachable but not migrated (logs "run `pnpm db:deploy`"). `main.ts` enables shutdown hooks.
+- Live-event updates use the DB-generated id. Sample live events are seeded into Postgres when the table is empty.
+- `.env.example`: quoted `DATABASE_URL` with `connection_limit=10&pool_timeout=20` pool params and PgBouncer guidance.
+
+#### Fixed
+- **Bookmarks on story-timeline articles were silently dropped** (`putBookmarks` skipped ids missing from the in-memory feed map). They now persist; ids never seen are returned in a new `missing` field.
+
+#### Notes
+- Local DB: Homebrew `postgresql@16` (Docker isn't installed here), role/db `timeline`. The Prisma client auto-loads the root `.env`, so to force memory mode use `DATABASE_URL=` (empty), not `env -u`.
+- A live `/api/timeline?q=world series` check returned `degraded` because GDELT answered HTTP 429. The persistence path was verified against the real DB with a scratch script instead (URL dedupe, firstSeen/lastSeen, inFeed promotion, story bookmarks).
+
 ---
 
 ## [0.2.0] - 2026-10-24
@@ -120,14 +146,15 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | ADR ID | Title | Status | Baseline Compliance | Current Compliance | Current State & Remaining Work |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **80%** | Single-column mobile layout, bottom tabs, all 6 routes, and overlay detail implemented. Capacitor native shell (Path A) packaging remaining. |
-| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **85%** | NestJS REST & WebSocket services active, frontend fully connected to `/api/feed` and `/api/timeline`. Database migrations pending. |
+| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
 | **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted | 75% | **85%** | GDELT DOC 2.0 rate-limited 2-pass ingestion and RSS parsing active. GCP BigQuery pipeline remains a stub. |
 | **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **50%** | UI cards, comparison views, and cron scheduling in place. Real LLM inference (Gemini 2.5 Flash-Lite) pending. |
 | **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
-| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. Background sync API call from frontend pending. |
+| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~15%** | Step 1 done (Postgres enabled, `Story`/`StoryArticle` persistence). Steps 2–6 and the provider/budget decision pending. |
 
-**Overall Platform Implementation:** **~61%** (progressed from initial 51% audit baseline).
+**Overall Platform Implementation:** **~63%** across ADR-001–007 (was ~61%; initial audit baseline 51%).
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion
