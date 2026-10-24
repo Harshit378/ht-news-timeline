@@ -94,3 +94,5 @@ pnpm mobile:android    # open in Android Studio
 ```
 
 Native builds need a reachable API host in `NEXT_PUBLIC_API_URL`, for example `http://192.168.1.20:4000/api`.
+
+Store builds: `npx nx run web:android-release` and `npx nx run web:ios-archive` (they refuse a localhost/http API URL). Signing, versioning, icons and the submission checklist are in [docs/native-release.md](docs/native-release.md).

@@ -32,6 +32,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Eliminates multi-column responsive layout overhead; ensures consistent UX across mobile web, PWA home-screen installs, and native iOS/Android binaries.
   * **Negative:** Requires replacing desktop keyboard-first patterns (e.g., `⌘K` search modal and hover tooltips) with touch-first interactions (swipeable filter chips and long-press bookmark actions).
+* **Path A release readiness (25 Oct 2026):** icons/splash generated for both platforms, version sync from `apps/web/package.json`, a release guard that refuses dev API URLs, `android-release` / `ios-archive` Nx targets with env-based Android signing, and `docs/native-release.md`. Actual store builds need JDK 21 and Xcode, which this development machine lacks.
 
 ---
 

@@ -9,10 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Planned & In Progress
-- **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
+- **Native store builds (ADR-001 Path A):** run `nx run web:android-release` with JDK 21 and `nx run web:ios-archive` with Xcode; choose the first store version and confirm the bundle id.
 - **Per-user LLM quotas (ADR-004, needs ADR-007):** replace the global daily token cap with per-tier quotas once accounts exist.
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
+
+### ADR-001 Path A — Capacitor release readiness · 2026-10-25
+- **Icons and splash:** sources in `apps/web/resources/` (`icon-only.png` — renamed from the unreferenced `icon.png` — plus `icon-foreground.png`, `icon-background.png`, `splash.png`, `splash-dark.png` built from it on `#0a0a0b`), generated with `@capacitor/assets` into both native projects (Android legacy + adaptive icons and day/night splash for every density; iOS app icon and light/dark splash). Before this, Android adaptive icons still used Capacitor's default foreground.
+- **Versioning:** `scripts/sync-native-version.mjs` (`nx run web:native-version`) copies `apps/web/package.json`'s version into Android `versionName`/`versionCode` and iOS `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`; build number derived from semver (`1.2.3` → `1002003`) or `BUILD_NUMBER`. Not run on the repo: it would set the native apps to the web app's `0.0.1`, and the first store version is an owner decision.
+- **Release guard:** `scripts/check-release-env.mjs` (`nx run web:release-check`) blocks a release build whose `NEXT_PUBLIC_API_URL` is unset, not https, not ending in `/api`, or local/LAN (and a non-wss `NEXT_PUBLIC_WS_URL`); it warns about secret-looking `NEXT_PUBLIC_*` variables. Today `NEXT_PUBLIC_API_URL` is set nowhere, so a release build would silently have shipped the `http://localhost:4000/api` fallback.
+- **Targets:** `nx run web:android-release` (release-check → native-version → build → `cap sync android` → `gradlew bundleRelease`) and `nx run web:ios-archive` (… → `xcodebuild archive` to `dist/ios/App.xcarchive`). Android release signing reads `ANDROID_KEYSTORE_PATH` / `_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`; without them the bundle is unsigned. iOS signing stays in Xcode. ATS already allows local networking (`NSAllowsLocalNetworking`); Android cleartext is debug-only (existing).
+- `docs/native-release.md`: prerequisites, bundle-id decision, versioning, release env, icon regeneration, Android/iOS steps and a submission checklist. README links it.
+- Tests: `apps/web/__tests__/native-release.test.ts` (build numbers, Android/iOS rewrites, release env rules, secret-looking public vars). `pnpm test` 173/173.
+- **Not verified on this machine:** `gradlew bundleRelease` fails before compiling because the only JDK is 26 (Gradle 8.14: "Unsupported class file major version 70"; needs JDK 21, e.g. Android Studio's JBR). There is no Xcode.app (`xcode-select` points at Command Line Tools), so the iOS archive can't run. `release-check` was run and correctly blocked the current environment.
 
 ### ADR-009 — Region-aware feed ranking · 2026-10-25
 - `region` on `RssFeed` and `Article` (ISO 3166-1 alpha-2 or `GLOBAL`; migration `20261024184846_region`). All 33 curated feeds are tagged (Times of India `IN`; BBC, BBC Sport, Guardian `GB`; NPR, ESPN, Ars Technica, The Verge, NASA `US`; Al Jazeera `GLOBAL`). RSS articles copy their feed's region; GDELT records map `sourcecountry`; News API records use `locale`. On boot, articles stored earlier are tagged from their curated outlet (idempotent, untagged rows only).
