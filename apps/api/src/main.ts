@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app/app.module';
+import { isAllowedOrigin } from './cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -9,13 +10,10 @@ async function bootstrap() {
   app.enableShutdownHooks();
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix);
-  // Capacitor serves the app from capacitor://localhost (iOS) and http://localhost (Android).
-  const nativeOrigins = ['capacitor://localhost', 'http://localhost'];
   app.enableCors({
-    origin: [
-      ...(process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000']),
-      ...nativeOrigins,
-    ],
+    // Requests without an Origin header (curl, server-to-server) are not browser CORS requests.
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) =>
+      callback(null, !origin || isAllowedOrigin(origin)),
     credentials: true,
   });
   const port = Number(process.env.PORT) || 4000;
