@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ArticleRecord,
@@ -9,6 +10,21 @@ import {
   RssFeedRecord,
   TopicSummaryRecord,
 } from './types';
+
+const MAX_MEMORY_ARTICLES = 5000;
+
+/** Newest rows matching any term; scored in memory (Postgres full-text search can replace this). */
+const SEARCH_CANDIDATES = 1000;
+
+/**
+ * Lowercased search words; same rules as GDELT story queries (≥ 3 chars, no operators).
+ * Bare numbers such as years are dropped unless they are the whole query — headlines rarely say "2026".
+ */
+export function searchTerms(q: string) {
+  const words = sanitizeStoryQuery(q).toLowerCase().split(' ').filter(Boolean);
+  const meaningful = words.filter((w) => !/^\d+$/.test(w));
+  return meaningful.length ? meaningful : words;
+}
 
 @Injectable()
 export class NewsStore {
@@ -93,28 +109,41 @@ export class NewsStore {
     }
   }
 
-  /** In postgres mode this also matches story-only articles: the stored archive is searchable. */
+  /**
+   * Word-based match over headline, excerpt and source. Queries of 3+ words may miss one word, so
+   * "MLB World Series 2026" still finds ESPN's "World Series Game 1: Takeaways…". Best matches
+   * first, then newest. In postgres mode this also covers story-only (archived) articles.
+   */
   async searchArticles(q: string, take = 200) {
-    const needle = q.trim();
-    if (!needle) return [];
+    const terms = searchTerms(q);
+    if (terms.length === 0) return [];
+    let candidates: ArticleRecord[];
     if (this.dbReady) {
       const rows = await this.prisma.article.findMany({
         where: {
-          OR: [
-            { headline: { contains: needle, mode: 'insensitive' } },
-            { excerpt: { contains: needle, mode: 'insensitive' } },
-            { source: { contains: needle, mode: 'insensitive' } },
-          ],
+          OR: terms.flatMap((term) => [
+            { headline: { contains: term, mode: 'insensitive' as const } },
+            { excerpt: { contains: term, mode: 'insensitive' as const } },
+            { source: { contains: term, mode: 'insensitive' as const } },
+          ]),
         },
         orderBy: { publishedAt: 'desc' },
-        take,
+        take: SEARCH_CANDIDATES,
       });
-      return rows.map((a) => this.mapArticle(a));
+      candidates = rows.map((a) => this.mapArticle(a));
+    } else {
+      candidates = await this.listArticles(undefined, { take: Number.MAX_SAFE_INTEGER });
     }
-    const lower = needle.toLowerCase();
-    return (await this.listArticles(undefined, { take: Number.MAX_SAFE_INTEGER }))
-      .filter((a) => `${a.headline} ${a.excerpt} ${a.source}`.toLowerCase().includes(lower))
-      .slice(0, take);
+    const needed = terms.length >= 3 ? terms.length - 1 : terms.length;
+    return candidates
+      .map((a) => {
+        const text = `${a.headline} ${a.excerpt} ${a.source}`.toLowerCase();
+        return { a, score: terms.filter((t) => text.includes(t)).length };
+      })
+      .filter((m) => m.score >= needed)
+      .sort((x, y) => y.score - x.score || y.a.publishedAt.getTime() - x.a.publishedAt.getTime())
+      .slice(0, take)
+      .map((m) => m.a);
   }
 
   async trendingTopics() {
@@ -161,6 +190,7 @@ export class NewsStore {
   async upsertArticles(records: ArticleRecord[]) {
     if (!this.dbReady) {
       for (const record of records) this.articles.set(record.id, record);
+      this.trimMemoryArticles();
       return;
     }
     await this.persistArticles(records, true);
@@ -182,6 +212,17 @@ export class NewsStore {
     });
     const byId = new Map(stored.map((a) => [a.id, a]));
     const byUrl = new Map(stored.filter((a) => a.url).map((a) => [a.url as string, a]));
+    // Feeds are re-polled with richer text than an earlier one-line copy (e.g. GDELT's title-only
+    // excerpt), and createMany skips existing rows: upgrade the excerpt/image when ours is better.
+    const upgrades = records.flatMap((r) => {
+      const row = byId.get(r.id) ?? (r.url ? byUrl.get(r.url) : undefined);
+      if (!row) return [];
+      const data: { excerpt?: string; imageUrl?: string } = {};
+      if (r.excerpt.length > row.excerpt.length + 20) data.excerpt = r.excerpt;
+      if (!row.imageUrl && r.imageUrl) data.imageUrl = r.imageUrl;
+      return Object.keys(data).length ? [this.prisma.article.update({ where: { id: row.id }, data })] : [];
+    });
+    if (upgrades.length) await this.prisma.$transaction(upgrades);
     if (inFeed) {
       const promote = stored.filter((a) => !a.inFeed).map((a) => a.id);
       if (promote.length) {
@@ -323,27 +364,11 @@ export class NewsStore {
   async saveFeed(feed: RssFeedRecord) {
     this.feeds.set(feed.id, feed);
     if (!this.dbReady) return feed;
+    const { id, url, addedAt, ...mutable } = feed;
     return this.prisma.rssFeed.upsert({
-      where: { url: feed.url },
-      create: {
-        id: feed.id,
-        title: feed.title,
-        url: feed.url,
-        description: feed.description,
-        category: feed.category,
-        isActive: feed.isActive,
-        lastChecked: feed.lastChecked,
-        itemCount: feed.itemCount,
-        addedAt: feed.addedAt,
-      },
-      update: {
-        title: feed.title,
-        description: feed.description,
-        category: feed.category,
-        isActive: feed.isActive,
-        lastChecked: feed.lastChecked,
-        itemCount: feed.itemCount,
-      },
+      where: { url },
+      create: { id, url, addedAt, ...mutable },
+      update: mutable,
     });
   }
 
@@ -377,6 +402,15 @@ export class NewsStore {
     event.lastUpdated = new Date();
     this.events.set(eventId, event);
     return { event, update };
+  }
+
+  /** Memory mode has no archive: keep only the newest articles so RSS polling can't grow it forever. */
+  private trimMemoryArticles(max = MAX_MEMORY_ARTICLES) {
+    if (this.articles.size <= max) return;
+    const newestFirst = [...this.articles.values()].sort(
+      (a, b) => b.publishedAt.getTime() - a.publishedAt.getTime(),
+    );
+    for (const a of newestFirst.slice(max)) this.articles.delete(a.id);
   }
 
   private bookmarkKey(userId: string, articleId: string) {

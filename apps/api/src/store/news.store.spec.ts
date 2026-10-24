@@ -52,6 +52,19 @@ describe('NewsStore (memory mode)', () => {
   });
 });
 
+describe('NewsStore.searchArticles (memory mode)', () => {
+  it('matches words in any order, ignores years and tolerates one missing word in long queries', async () => {
+    const store = await memoryStore();
+    await store.upsertArticles([
+      { ...rec('espn', 'sports'), headline: "World Series Game 1: Takeaways from Brewers' win over Rays", excerpt: 'Recap' },
+      { ...rec('other', 'world'), headline: 'World leaders meet', excerpt: 'Summit talks' },
+    ]);
+    expect((await store.searchArticles('MLB World Series 2026')).map((a) => a.id)).toEqual(['espn']);
+    expect((await store.searchArticles('series world')).map((a) => a.id)).toEqual(['espn']);
+    expect(await store.searchArticles('world series mlb nba')).toEqual([]); // two words missing
+  });
+});
+
 describe('NewsStore (postgres mode) putBookmarks', () => {
   it('stores bookmarks for known articles and reports unknown ids', async () => {
     const tx = {

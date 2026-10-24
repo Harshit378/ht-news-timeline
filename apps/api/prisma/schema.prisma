@@ -109,13 +109,22 @@ model TopicSummary {
 }
 
 model RssFeed {
-  id          String    @id @default(cuid())
-  title       String
-  url         String    @unique
-  description String?
-  category    String
-  isActive    Boolean   @default(true)
-  lastChecked DateTime?
-  itemCount   Int       @default(0)
-  addedAt     DateTime  @default(now())
+  id           String    @id @default(cuid())
+  title        String
+  url          String    @unique
+  description  String?
+  category     String
+  isActive     Boolean   @default(true)
+  /// 'curated' (seeded publisher feeds, ADR-008) or 'user' (added via /api/rss/feeds).
+  origin       String    @default("user")
+  /// Display name for articles from this feed, e.g. "BBC News"; falls back to title.
+  source       String?
+  etag         String?
+  lastModified String?
+  lastChecked  DateTime?
+  lastItemAt   DateTime?
+  lastError    String?
+  failureCount Int       @default(0)
+  itemCount    Int       @default(0)
+  addedAt      DateTime  @default(now())
 }

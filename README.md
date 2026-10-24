@@ -18,7 +18,7 @@ pnpm db:deploy                # apply migrations (needs Postgres, see below)
 pnpm dev:all                  # web on :3000 + API on :4000
 ```
 
-Check the API with `curl localhost:4000/api/health`, which should return `{"database":"postgres","migrations":"ok",...}`.
+Check the API with `curl localhost:4000/api/health`, which should return `{"database":"postgres","migrations":"ok",...}`. The feed fills from 23 curated publisher RSS feeds within seconds of startup (polled every 10 min). GDELT runs hourly as a fallback; its state, including any rate-limit cooldown, shows under `providers` in the health check.
 
 Without a database the API still runs on an in-memory store, but nothing persists. To force that mode, set `DATABASE_URL=` (empty). Unsetting it isn't enough, because Prisma reads `.env` itself.
 
@@ -54,6 +54,8 @@ docker compose up -d
 | `pnpm test` | Vitest (API + web tests) |
 | `pnpm lint` | Lint the web app |
 | `pnpm build` / `pnpm build:api` / `pnpm build:all` | Production builds |
+| `pnpm clean` | Delete build output: `dist/`, `.next/`, `apps/web/.next`, `apps/web/out`, `tsconfig.tsbuildinfo` |
+| `pnpm clean:all` | `clean` plus `nx reset` (clears the Nx cache and daemon) |
 
 ## Mobile (Capacitor)
 

@@ -44,7 +44,14 @@ export interface RssFeedRecord {
   description: string | null;
   category: string;
   isActive: boolean;
+  origin: string;
+  source: string | null;
+  etag: string | null;
+  lastModified: string | null;
   lastChecked: Date | null;
+  lastItemAt: Date | null;
+  lastError: string | null;
+  failureCount: number;
   itemCount: number;
   addedAt: Date;
 }

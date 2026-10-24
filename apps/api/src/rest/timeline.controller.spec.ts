@@ -53,15 +53,18 @@ describe('sanitizeStoryQuery', () => {
 });
 
 describe('TimelineController', () => {
-  it('merges GDELT + store results oldest-first and caches per query', async () => {
-    const gdelt = {
-      searchStory: vi.fn(async () => [
-        rec('g2', '2026-10-01T00:00:00Z', 'Second development'),
-        rec('g1', '2026-08-01T00:00:00Z', 'Story begins'),
-      ]),
+  it('merges provider + archive results oldest-first and caches per query', async () => {
+    const providers = {
+      search: vi.fn(async () => ({
+        items: [
+          rec('g2', '2026-10-01T00:00:00Z', 'Second development'),
+          rec('g1', '2026-08-01T00:00:00Z', 'Story begins'),
+        ],
+        degraded: false,
+      })),
     };
     const store = makeStore([rec('s1', '2026-10-20T00:00:00Z', 'Latest update')]);
-    const ctrl = new TimelineController(store as never, gdelt as never);
+    const ctrl = new TimelineController(store as never, providers as never);
 
     const res = await ctrl.timeline('Election  results', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['g1', 'g2', 's1']);
@@ -72,13 +75,13 @@ describe('TimelineController', () => {
     expect(store.saveStory.mock.calls[0][0]).toBe('election results|');
 
     await ctrl.timeline('election results', undefined);
-    expect(gdelt.searchStory).toHaveBeenCalledTimes(1); // second call served from cache
+    expect(providers.search).toHaveBeenCalledTimes(1); // second call served from cache
   });
 
-  it('falls back to store matches when GDELT fails', async () => {
-    const gdelt = { searchStory: vi.fn(async () => Promise.reject(new Error('429'))) };
+  it('falls back to archive matches when providers fail', async () => {
+    const providers = { search: vi.fn(async () => Promise.reject(new Error('429'))) };
     const store = makeStore([rec('s1', '2026-10-20T00:00:00Z', 'Local match')]);
-    const ctrl = new TimelineController(store as never, gdelt as never);
+    const ctrl = new TimelineController(store as never, providers as never);
     const res = await ctrl.timeline('anything', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['s1']);
     expect(res.degraded).toBe(true);
@@ -86,28 +89,34 @@ describe('TimelineController', () => {
 
   it('collapses concurrent requests for the same story', async () => {
     let release!: () => void;
-    const gdelt = {
-      searchStory: vi.fn(
-        () => new Promise<ArticleRecord[]>((r) => (release = () => r([rec('g1', '2026-08-01T00:00:00Z', 'x')]))),
+    const providers = {
+      search: vi.fn(
+        () =>
+          new Promise<{ items: ArticleRecord[]; degraded: boolean }>(
+            (r) => (release = () => r({ items: [rec('g1', '2026-08-01T00:00:00Z', 'x')], degraded: false })),
+          ),
       ),
     };
-    const ctrl = new TimelineController(makeStore() as never, gdelt as never);
+    const ctrl = new TimelineController(makeStore() as never, providers as never);
     const p1 = ctrl.timeline('mars mission', undefined);
     const p2 = ctrl.timeline('Mars mission', undefined);
     await new Promise((r) => setTimeout(r, 0)); // let both stored-story lookups settle
     release();
     await Promise.all([p1, p2]);
-    expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
+    expect(providers.search).toHaveBeenCalledTimes(1);
   });
 
   it('responds degraded at the deadline but keeps fetching to warm the cache', async () => {
     let release!: () => void;
-    const gdelt = {
-      searchStory: vi.fn(
-        () => new Promise<ArticleRecord[]>((r) => (release = () => r([rec('g1', '2026-08-01T00:00:00Z', 'Late result')]))),
+    const providers = {
+      search: vi.fn(
+        () =>
+          new Promise<{ items: ArticleRecord[]; degraded: boolean }>(
+            (r) => (release = () => r({ items: [rec('g1', '2026-08-01T00:00:00Z', 'Late result')], degraded: false })),
+          ),
       ),
     };
-    const ctrl = new TimelineController(makeStore() as never, gdelt as never);
+    const ctrl = new TimelineController(makeStore() as never, providers as never);
     ctrl.deadlineMs = 20;
     const first = await ctrl.timeline('slow story', undefined);
     expect(first.degraded).toBe(true);
@@ -117,35 +126,35 @@ describe('TimelineController', () => {
     const second = await ctrl.timeline('slow story', undefined);
     expect(second.degraded).toBe(false);
     expect(second.items.map((i) => i.id)).toEqual(['g1']);
-    expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
+    expect(providers.search).toHaveBeenCalledTimes(1);
   });
 
-  it('serves a fresh stored story without calling GDELT', async () => {
-    const gdelt = { searchStory: vi.fn() };
+  it('serves a fresh stored story without calling providers', async () => {
+    const providers = { search: vi.fn() };
     const store = makeStore([], { lastFetchedAt: new Date(), items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
-    const ctrl = new TimelineController(store as never, gdelt as never);
+    const ctrl = new TimelineController(store as never, providers as never);
     const res = await ctrl.timeline('persisted story', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['p1']);
     expect(res.degraded).toBe(false);
-    expect(gdelt.searchStory).not.toHaveBeenCalled();
+    expect(providers.search).not.toHaveBeenCalled();
   });
 
-  it('falls back to a stale stored story when GDELT fails', async () => {
-    const gdelt = { searchStory: vi.fn(async () => Promise.reject(new Error('429'))) };
+  it('falls back to a stale stored story when providers fail', async () => {
+    const providers = { search: vi.fn(async () => Promise.reject(new Error('429'))) };
     const stale = new Date(Date.now() - 60 * 60 * 1000);
     const store = makeStore([], { lastFetchedAt: stale, items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
-    const ctrl = new TimelineController(store as never, gdelt as never);
+    const ctrl = new TimelineController(store as never, providers as never);
     const res = await ctrl.timeline('persisted story', undefined);
-    expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
+    expect(providers.search).toHaveBeenCalledTimes(1);
     expect(res.items.map((i) => i.id)).toEqual(['p1']);
     expect(res.degraded).toBe(true);
   });
 
   it('still answers when persisting the story fails', async () => {
-    const gdelt = { searchStory: vi.fn(async () => [rec('g1', '2026-08-01T00:00:00Z', 'x')]) };
+    const providers = { search: vi.fn(async () => ({ items: [rec('g1', '2026-08-01T00:00:00Z', 'x')], degraded: false })) };
     const store = makeStore();
     store.saveStory.mockRejectedValueOnce(new Error('db down'));
-    const ctrl = new TimelineController(store as never, gdelt as never);
+    const ctrl = new TimelineController(store as never, providers as never);
     const res = await ctrl.timeline('db outage', undefined);
     expect(res.items.map((i) => i.id)).toEqual(['g1']);
     expect(res.degraded).toBe(false);
@@ -153,7 +162,7 @@ describe('TimelineController', () => {
   });
 
   it('rejects an empty query', async () => {
-    const ctrl = new TimelineController(makeStore() as never, { searchStory: vi.fn() } as never);
+    const ctrl = new TimelineController(makeStore() as never, { search: vi.fn() } as never);
     await expect(ctrl.timeline('  ', undefined)).rejects.toThrow('q is required');
   });
 });

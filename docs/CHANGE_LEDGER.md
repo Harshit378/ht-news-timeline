@@ -16,6 +16,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
 
+### Longer article excerpts from RSS · 2026-10-24
+- Problem: cards and the detail view showed a single line (e.g. ESPN "World Series Game 1: Takeaways…").
+- Feeds now keep up to ~1,000 chars (`MAX_EXCERPT_CHARS`, cut at a sentence end, never mid-word): the longer of `description` / `summary` / `content:encoded`, with "Continue reading…" boilerplate removed. Still excerpt only, never full bodies (ADR-008).
+- Re-polls upgrade already-stored rows when the new excerpt is longer (and fill in a missing image), because `createMany` skips existing rows. This also replaces GDELT's title-only excerpts when RSS carries the same URL.
+- Measured result (avg chars): Ars Technica 78 → 855, NASA 347 → 853, The Guardian 400 cap → 664, The Verge 337 → 598.
+- Not fixable from RSS: BBC, ESPN, Al Jazeera, BBC Sport and NPR only publish 100–200 chars. Next: an AI "story brief" per timeline (ADR-004, Ollama) that synthesizes a paragraph from all sources.
+- Note: a one-off reset of `etag` / `lastModified` is needed after changing how feeds are parsed, otherwise 304 responses keep the old text.
+
+### Fix — CORS blocked the web dev server · 2026-10-24
+- `nx serve web` runs on `localhost:4200`, but the API only allowed `localhost:3000`, so every browser call failed with "Origin … is not allowed by Access-Control-Allow-Origin" and the story page showed "Couldn't reach the newsroom". Added `apps/api/src/cors.ts` (`isAllowedOrigin`, with tests): outside production any `localhost` / `127.0.0.1` / `[::1]` / private-LAN origin on any port is allowed; in production only `CORS_ORIGIN` and the Capacitor origins are. Requests without an Origin header are unaffected. Restart the API to apply.
+
+### Tooling · 2026-10-24
+- Added `pnpm clean` (removes `dist/`, `.next/`, `apps/web/.next`, `apps/web/out`, `tsconfig.tsbuildinfo`) and `pnpm clean:all` (also runs `nx reset`). Documented in `README.md`.
+
+### ADR-008 steps 2 & 4 — `NewsProvider` interface + curated RSS archive · 2026-10-24
+
+#### Added
+- **`NewsProvider` interface** (`apps/api/src/ingestion/providers/`) with `gdelt-doc` and `rss` providers registered under the `NEWS_PROVIDERS` token. **`NewsSearchService`** fans a story query out to every searchable provider with a per-provider timeout (25 s) and merges the results; `degraded` is set when any provider fails.
+- **Curated RSS ingestion:** 23 publisher feeds covering all 10 categories (BBC, Guardian, NPR, Al Jazeera, Ars Technica, The Verge, NASA, ESPN, BBC Sport), listed in `apps/api/src/rss/curated-feeds.ts` and all verified reachable. `RssIngestionService` seeds them on boot and polls every 10 min, 4 at a time:
+  - conditional GET (ETag / Last-Modified → 304)
+  - tracking-param URL normalization, with the same sha1 id scheme as GDELT so cross-source duplicates collapse
+  - dates clamped to now
+  - feeds that fail 5 polls in a row are retried at most hourly
+  - user feeds are polled too
+- Migration `20261024144748_rss_ingestion`: new `RssFeed` columns `origin`, `source`, `etag`, `lastModified`, `lastItemAt`, `lastError`, `failureCount`.
+- **GDELT cooldown breaker:** a 429 pauses GDELT for 2 min, doubling to 15 min. Queued and new requests fail fast with `GdeltCoolingDownError`, with no network call and no queue wait.
+- `/api/health` reports `providers[]` (state, cooldownUntil, lastSuccessAt, lastError) and `rss: { active, failing }`.
+- Tests: `rss.service.spec.ts`, `rss-ingestion.service.spec.ts`, `news-search.service.spec.ts`, `gdelt-doc.service.spec.ts`, plus search-term cases in `news.store.spec.ts`. **83/83 passing.**
+
+#### Changed
+- GDELT DOC is now a fallback (amends ADR-003). Story search makes **one 1-week `HybridRel` request** instead of two 3-month passes, 429s are no longer retried, and category ingestion runs **hourly** instead of every 15 min. On boot, RSS runs first, then GDELT.
+- `TimelineController` uses `NewsSearchService` instead of GDELT directly. `STORY_DEADLINE_MS` dropped from 50 s to **15 s**.
+- **Archive search is word-based** (`NewsStore.searchArticles`):
+  - words can match in any order across headline, excerpt and source
+  - bare numbers such as years are ignored
+  - queries of 3+ words may miss one word
+  - results are ranked by match count, then date
+
+  Result: "MLB World Series 2026" went from 0 items to 12 ESPN stories, answered in about 30 ms while GDELT was cooling down.
+- RSS parser: element text is read safely (`#text` objects and CDATA; fixes `"[object Object]"` guids and titles), Atom `rel="alternate"` links are picked, images come from `media:content` (largest), `media:thumbnail`, image enclosures or inline `<img>`, HTML entities are decoded, and up to 50 items are read per feed (was 30).
+- `DELETE /api/rss/feeds/:id` on a curated feed disables it instead of deleting it, because seeding would otherwise bring it back. User feeds are still deleted.
+- Memory mode keeps only the newest 5,000 articles.
+
+#### Security
+- **SSRF guard for server-polled feeds:** the host is resolved and rejected if any address is loopback, private, CGNAT, link-local/metadata (`169.254.169.254`), multicast or reserved, including IPv4-mapped IPv6. Redirects are followed manually (at most 3), and every hop is checked.
+
+#### Notes
+- Verified against Postgres: the first poll stored 472 RSS items from 23 feeds in about 2 s with 0 failures. The DB then held 728 articles across all categories, and feeds with validators returned 304 on re-poll.
+- A second API instance on the same IP tripped GDELT's limit; the breaker opened and timelines kept answering from the archive.
+
 ### ADR-002 completion — PostgreSQL as source of truth (+ ADR-008 step 1) · 2026-10-24
 
 #### Added
@@ -147,14 +197,14 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **80%** | Single-column mobile layout, bottom tabs, all 6 routes, and overlay detail implemented. Capacitor native shell (Path A) packaging remaining. |
 | **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
-| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted | 75% | **85%** | GDELT DOC 2.0 rate-limited 2-pass ingestion and RSS parsing active. GCP BigQuery pipeline remains a stub. |
+| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
 | **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **50%** | UI cards, comparison views, and cron scheduling in place. Real LLM inference (Gemini 2.5 Flash-Lite) pending. |
 | **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
-| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~15%** | Step 1 done (Postgres enabled, `Story`/`StoryArticle` persistence). Steps 2–6 and the provider/budget decision pending. |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 23 curated RSS feeds). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
 
-**Overall Platform Implementation:** **~63%** across ADR-001–007 (was ~61%; initial audit baseline 51%).
+**Overall Platform Implementation:** **~64%** across ADR-001–007 (was ~63%; initial audit baseline 51%).
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

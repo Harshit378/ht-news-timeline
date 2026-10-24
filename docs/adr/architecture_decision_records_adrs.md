@@ -65,6 +65,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Delivers real-time, worldwide coverage across 100+ languages updated every 15 minutes with pre-computed tone/sentiment scores for **$0** (staying within GCP BigQuery's 1 TB/month free tier via partition pruning).
   * **Negative:** GDELT DOC 2.0 enforces a 1-request-per-5-seconds rate limit, requiring staggered ingestion queues (`5500ms` delay between category fetches) in the background worker.
+* **Amended by ADR-008 (24 Oct 2026):** GDELT DOC is no longer the primary source. It runs behind the `NewsProvider` interface as an hourly category sweep plus a ≤ 1-week story search, with a 429 cooldown breaker (2 → 15 min). Curated publisher RSS now carries the home feed.
 
 ---
 
@@ -160,6 +161,11 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   1. Return **stored + News-API results for the recent window first** (target < 2 s).
   2. Kick off background backfill (BigQuery/GDELT older ranges, Wikimedia milestones); persist results; push them to the open page (WebSocket channel from ADR-005) or let the client poll.
   3. Every fetched article is **upserted into PostgreSQL**, deduplicated by URL/headline (existing `dedupeChronological`), and linked to a `storyKey` so repeated searches are instant and timelines grow richer.
+* **Implementation progress (24 Oct 2026):** steps **1, 2 and 4 done**.
+  * Step 1: Postgres, `Story` / `StoryArticle` (see ADR-002 notes).
+  * Step 2: `NewsProvider` in `apps/api/src/ingestion/providers/` (`gdelt-doc`, `rss`), with `NewsSearchService` fanning story queries out to providers. GDELT DOC uses `timespan=1w` and fails fast while cooling down after a 429. The timeline deadline dropped from 50 s to 15 s.
+  * Step 4: 23 curated feeds (`apps/api/src/rss/curated-feeds.ts`, all 10 categories), polled every 10 min with ETag/Last-Modified, tracking-param URL normalization (same sha1 id scheme as GDELT) and per-feed failure backoff. User feeds are polled too, behind an SSRF guard. Story timelines search this archive (word-based, one word may be missing for 3+ word queries).
+  * Remaining: step 3 (News Search API; provider and budget decision pending), step 5 (BigQuery history), step 6 (Wikimedia milestones).
 * **Implementation steps (in order):**
   1. Enable PostgreSQL (`docker compose up -d`, `DATABASE_URL`), run Prisma migrations, persist story results (add `Story` / `StoryArticle` tables).
   2. Introduce the `NewsProvider` interface; port GDELT DOC onto it with ≤ 1-week windows.

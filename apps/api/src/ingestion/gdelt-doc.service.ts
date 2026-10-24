@@ -43,15 +43,29 @@ interface QueuedRequest {
 }
 
 const MAX_RETRIES = 2;
-/** 3-month windows are slow on GDELT's side. */
-const STORY_TIMEOUT_MS = 45_000;
+const STORY_TIMEOUT_MS = 20_000;
 const RETRY_BACKOFF_MS = 6000;
+/** After a rate-limit response GDELT is left alone for 2 min, doubling up to 15 min. */
+const COOLDOWN_MIN_MS = 2 * 60_000;
+const COOLDOWN_MAX_MS = 15 * 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Thrown without touching the network while GDELT is cooling down after a 429. */
+export class GdeltCoolingDownError extends Error {
+  constructor(until: number) {
+    super(`GDELT cooling down until ${new Date(until).toISOString()}`);
+  }
+}
+
+function isRateLimited(err: unknown) {
+  return axios.isAxiosError(err) && err.response?.status === 429;
+}
+
 function isRetryable(err: unknown) {
   if (!axios.isAxiosError(err)) return false;
-  if (err.response?.status === 429 || (err.response?.status ?? 0) >= 500) return true;
+  // 429s are not retried — they open the cooldown instead.
+  if ((err.response?.status ?? 0) >= 500) return true;
   // Timeouts are not retried: a slow window will just be slow again.
   return err.code === 'ECONNRESET' || /socket hang up/i.test(err.message);
 }
@@ -93,6 +107,20 @@ export class GdeltDocService {
   private readonly queue: QueuedRequest[] = [];
   private draining = false;
   private lastRequestAt = 0;
+  private cooldownUntil = 0;
+  private cooldownMs = 0;
+  private lastSuccessAt: Date | null = null;
+  private lastError: string | null = null;
+
+  status() {
+    const coolingDown = Date.now() < this.cooldownUntil;
+    return {
+      state: coolingDown ? ('cooldown' as const) : this.lastError ? ('error' as const) : ('ok' as const),
+      cooldownUntil: coolingDown ? new Date(this.cooldownUntil).toISOString() : null,
+      lastSuccessAt: this.lastSuccessAt?.toISOString() ?? null,
+      lastError: this.lastError,
+    };
+  }
 
   /**
    * Category requests are spaced by the shared rate-limit queue (MIN_REQUEST_GAP_MS).
@@ -123,33 +151,18 @@ export class GdeltDocService {
   }
 
   /**
-   * Coverage of a story across GDELT's rolling 3-month DOC window.
-   * Two passes: DateAsc finds where the story began; HybridRel adds the most relevant
-   * reporting across the whole window (weighted toward recent), so the timeline reaches "now".
+   * Most relevant coverage of a story from the last week (ADR-008: GDELT DOC is a short-window
+   * discovery fallback). Older history comes from our own archive, not 3-month DOC queries.
    */
-  async searchStory(q: string, category = 'world'): Promise<ArticleRecord[]> {
+  async searchRecent(q: string, category = 'world'): Promise<ArticleRecord[]> {
     const query = sanitizeStoryQuery(q);
     if (!query) return [];
-    const base = { query: `${query} sourcelang:english`, timespan: '3months' };
-    const origin = await this.fetchArticles(
-      { ...base, maxrecords: 75, sort: 'DateAsc' },
+    return this.fetchArticles(
+      { query: `${query} sourcelang:english`, timespan: '1w', maxrecords: 75, sort: 'HybridRel' },
       category,
       GdeltPriority.Interactive,
       STORY_TIMEOUT_MS,
     );
-    let developments: ArticleRecord[] = [];
-    try {
-      developments = await this.fetchArticles(
-        { ...base, maxrecords: 175, sort: 'HybridRel' },
-        category,
-        GdeltPriority.Interactive,
-        STORY_TIMEOUT_MS,
-      );
-    } catch (err) {
-      // Origin results alone still make a usable timeline.
-      this.logger.warn(`GDELT story "${query}" relevance pass failed: ${err instanceof Error ? err.message : err}`);
-    }
-    return [...origin, ...developments];
   }
 
   private async fetchArticles(
@@ -158,26 +171,37 @@ export class GdeltDocService {
     priority: GdeltPriority,
     timeoutMs = 20_000,
   ): Promise<ArticleRecord[]> {
-    const request = () =>
-      this.http.get(DOC_API_URL, {
+    // Checked when the job runs, so requests queued before a 429 don't hit GDELT either.
+    const request = () => {
+      if (Date.now() < this.cooldownUntil) throw new GdeltCoolingDownError(this.cooldownUntil);
+      return this.http.get(DOC_API_URL, {
         params: { mode: 'ArtList', format: 'json', ...params },
         timeout: timeoutMs,
       });
+    };
     let data: unknown;
     for (let attempt = 0; ; attempt += 1) {
       try {
         ({ data } = await this.schedule(request, priority));
         break;
       } catch (err) {
-        // GDELT throttles with 429 or by dropping the socket; back off and re-queue.
+        if (isRateLimited(err)) this.startCooldown();
+        else if (!(err instanceof GdeltCoolingDownError)) this.lastError = err instanceof Error ? err.message : String(err);
+        // GDELT also throttles by dropping the socket; back off and re-queue.
         if (attempt >= MAX_RETRIES || !isRetryable(err)) throw err;
         await sleep(RETRY_BACKOFF_MS * (attempt + 1));
       }
     }
     // GDELT answers errors (rate limit, bad query) with a plain-text body instead of JSON.
     if (typeof data === 'string') {
-      throw new Error(`GDELT: ${data.trim().slice(0, 160) || 'empty response'}`);
+      if (/limit requests/i.test(data)) this.startCooldown();
+      const message = `GDELT: ${data.trim().slice(0, 160) || 'empty response'}`;
+      this.lastError = message;
+      throw new Error(message);
     }
+    this.cooldownMs = 0;
+    this.lastError = null;
+    this.lastSuccessAt = new Date();
     const articles = (data as { articles?: unknown } | null)?.articles;
     const raw: GdeltArticle[] = Array.isArray(articles) ? articles : [];
     return raw
@@ -185,9 +209,19 @@ export class GdeltDocService {
       .map((a) => this.toRecord(a, category));
   }
 
+  private startCooldown() {
+    this.cooldownMs = Math.min(COOLDOWN_MAX_MS, this.cooldownMs ? this.cooldownMs * 2 : COOLDOWN_MIN_MS);
+    this.cooldownUntil = Date.now() + this.cooldownMs;
+    this.lastError = 'HTTP 429 rate limited';
+    this.logger.warn(`GDELT rate limited; pausing for ${this.cooldownMs / 1000}s`);
+  }
+
   private schedule<T>(fn: () => Promise<T>, priority: GdeltPriority): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const job: QueuedRequest = { priority, run: () => fn().then(resolve, reject) };
+      const job: QueuedRequest = {
+        priority,
+        run: () => Promise.resolve().then(fn).then(resolve, reject),
+      };
       const at = this.queue.findIndex((q) => q.priority < priority);
       if (at === -1) this.queue.push(job);
       else this.queue.splice(at, 0, job);
@@ -200,13 +234,15 @@ export class GdeltDocService {
     this.draining = true;
     try {
       while (this.queue.length > 0) {
+        // During a cooldown jobs fail without a request, so there is no gap to respect.
+        const coolingDown = Date.now() < this.cooldownUntil;
         const wait = this.lastRequestAt + MIN_REQUEST_GAP_MS - Date.now();
-        if (wait > 0) await sleep(wait);
+        if (wait > 0 && !coolingDown) await sleep(wait);
         const job = this.queue.shift();
         if (!job) break;
         await job.run();
         // GDELT counts the gap from when a request finishes (responses can take 10s+).
-        this.lastRequestAt = Date.now();
+        if (!coolingDown) this.lastRequestAt = Date.now();
       }
     } finally {
       this.draining = false;

@@ -1,15 +1,17 @@
 import { BadRequestException, Controller, Get, Logger, Query } from '@nestjs/common';
-import { GdeltDocService, sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
+import { sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
+import { NewsSearchService } from '../ingestion/news-search.service';
 import { NewsStore } from '../store/news.store';
 import { ArticleRecord } from '../store/types';
 import { serializeArticle } from './serialize';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 /**
- * Respond within this window even if GDELT is still working (queue + slow 3-month queries).
- * The fetch keeps running and fills the cache, so a retry shortly after is instant.
+ * Respond within this window even if providers are still working (GDELT's rate-limit queue).
+ * The fetch keeps running and fills the cache, so a retry shortly after is instant; the
+ * stored archive answers in the meantime.
  */
-export const STORY_DEADLINE_MS = 50_000;
+export const STORY_DEADLINE_MS = 15_000;
 const MAX_CACHE_ENTRIES = 200;
 
 interface CachedTimeline {
@@ -44,8 +46,8 @@ export function dedupeChronological(records: ArticleRecord[]): ArticleRecord[] {
 
 /**
  * GET /api/timeline?q=&category= — a story from its first report to now, oldest first.
- * GDELT results are cached per query for 15 min to stay within GDELT's rate limit, and persisted
- * as a Story in postgres so repeat searches survive restarts and outages.
+ * Provider results (GDELT ≤ 1 week) are cached per query for 15 min and persisted as a Story in
+ * postgres; matches from the stored archive (curated RSS, earlier stories) are merged in.
  */
 @Controller('timeline')
 export class TimelineController {
@@ -57,7 +59,7 @@ export class TimelineController {
 
   constructor(
     private readonly store: NewsStore,
-    private readonly gdelt: GdeltDocService,
+    private readonly search: NewsSearchService,
   ) {}
 
   @Get()
@@ -71,7 +73,7 @@ export class TimelineController {
 
     return {
       query,
-      /** True when GDELT couldn't be reached; items are then partial (stale cache / local store). */
+      /** True when a provider couldn't be reached; items are then partial (stale cache / archive). */
       degraded,
       firstSeen: items[0]?.publishedAt.toISOString() ?? null,
       lastSeen: items[items.length - 1]?.publishedAt.toISOString() ?? null,
@@ -89,12 +91,12 @@ export class TimelineController {
       this.logger.log(`timeline cache hit "${query}" (${hit.items.length})`);
       return { items: hit.items, degraded: false };
     }
-    // Collapse concurrent requests for the same story into one GDELT round-trip.
+    // Collapse concurrent requests for the same story into one provider round-trip.
     let pending = this.inFlight.get(key);
     if (!pending) {
-      pending = this.gdelt
-        .searchStory(query, category || undefined)
-        .then(async (records) => {
+      pending = this.search
+        .search(query, category || undefined)
+        .then(async ({ items: records, degraded }) => {
           let items = records;
           try {
             items = await this.store.saveStory(key, query, category, records);
@@ -103,11 +105,11 @@ export class TimelineController {
             this.store.rememberStoryArticles(records);
           }
           this.remember(key, items);
-          this.logger.log(`timeline GDELT "${query}" → ${records.length} articles`);
-          return { items, degraded: false };
+          this.logger.log(`timeline providers "${query}" → ${records.length} articles`);
+          return { items, degraded };
         })
         .catch((err) => {
-          this.logger.warn(`timeline GDELT "${query}" failed: ${err instanceof Error ? err.message : err}`);
+          this.logger.warn(`timeline "${query}" providers failed: ${err instanceof Error ? err.message : err}`);
           // Stale cache or store-only results beat an error; flag it so the client can say so.
           return { items: hit?.items ?? [], degraded: true };
         })
