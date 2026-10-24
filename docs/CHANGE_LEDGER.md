@@ -13,7 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Per-user LLM quotas (ADR-004, needs ADR-007):** replace the global daily token cap with per-tier quotas once accounts exist.
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
-- **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+
+### Tests — placeholder suite replaced · 2026-10-25
+- Deleted `apps/web/__tests__/phase4.test.ts` (48 `expect(true).toBe(true)` placeholders). What it named is now covered by real tests: live events (`live-events.test.ts`), PWA/bookmark sync (`bookmark-sync.test.ts`), source comparison (`source-comparison.test.ts`), and the AI-summary and RSS client services (new `feature-services.test.ts`, which records requests through a stubbed axios adapter).
+- **Bug fixed while writing them:** `features/ai-summaries/summaryService.ts` had its own axios client with `NEXT_PUBLIC_API_URL + '/api/summaries'`, so with the documented `…/api` base URL it requested `/api/api/summaries`. It now uses the shared `api` client. `rssService.getRSSItems` called `/rss/feeds/:id/items`, a route the API doesn't have, and was unused — removed. Feed ids are now URL-encoded.
+- `vitest.config.ts`: added the web app's `@/` alias (so web modules can be tested directly) and dropped `globals: true`, which only the placeholder file needed.
+- `pnpm test`: 128/128 real tests (the earlier 172 included the 48 placeholders).
 
 ### ADR-004 — Source comparison on story timelines · 2026-10-25
 - Story briefs with ≥ 3 sources now also ask the model for `commonThemes` (2–4) and `differences` (`{source, point}`, ≤ 4) in the same call (`STORY_COMPARE_SCHEMA`, extra prompt rules in `summary-prompt.ts`). No extra LLM call, same input hash and cache.

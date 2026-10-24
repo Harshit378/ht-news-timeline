@@ -9,16 +9,11 @@ export async function addRSSFeed(url: string, category: string): Promise<RSSFeed
 }
 
 export async function removeRSSFeed(feedId: string): Promise<void> {
-  await rssClient.delete(`/rss/feeds/${feedId}`);
+  await rssClient.delete(`/rss/feeds/${encodeURIComponent(feedId)}`);
 }
 
 export async function listRSSFeeds(): Promise<RSSFeed[]> {
   const response = await rssClient.get('/rss/feeds');
-  return response.data;
-}
-
-export async function getRSSItems(feedId: string): Promise<RSSItem[]> {
-  const response = await rssClient.get(`/rss/feeds/${feedId}/items`);
   return response.data;
 }
 
@@ -28,7 +23,7 @@ export async function parseRSSFeed(url: string): Promise<RSSParseResult> {
 }
 
 export async function toggleRSSFeed(feedId: string, isActive: boolean): Promise<RSSFeed> {
-  const response = await rssClient.patch(`/rss/feeds/${feedId}`, { isActive });
+  const response = await rssClient.patch(`/rss/feeds/${encodeURIComponent(feedId)}`, { isActive });
   return response.data;
 }
 
