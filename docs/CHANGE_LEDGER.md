@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
 - **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
 - **Live events scale-out (ADR-005 follow-up):** sticky sessions or Redis pub/sub fan-out in `EventsGateway.broadcast` before running more than one API instance.
-- **Background Bookmark Sync Trigger (ADR-006):** Connect client bookmark mutations in `FeedContext.tsx` to `requestBackgroundSync('sync-bookmarks')` and reconcile against `PUT /api/bookmarks`.
+- **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
 
@@ -225,6 +225,32 @@ Architectural pivot from a desktop-centric 3-column interface to a mobile-first 
 
 ---
 
+### ADR-006 — Offline-first reading & background bookmark sync · 2026-10-24
+
+#### Added
+- `apps/web/app/lib/device.ts`: anonymous per-device UUID (`ht_timeline_device_v1`); works without `crypto.randomUUID` (plain-http LAN testing).
+- `apps/web/app/lib/bookmark-sync.ts`: `BookmarkSync` outbox — full-set idempotent PUT, 1 s debounce, single-flight with re-send, offline → pending + `requestBackgroundSync`, 4xx stops / 5xx retries, persisted across restarts; Cache Storage outbox for the service worker.
+- `FeedContext` exposes `bookmarkSync`; triggers on change, start, `online`, visibility and Capacitor `resume`; listens for the worker's `bookmarks-synced`.
+- Saved page status line: "Saved on this device · backed up …" / "will back up when you're online" / backup failed.
+- `apps/web/public/offline.html` (was referenced by the worker but missing).
+- `apps/web/app/lib/csp.ts` + production-only CSP `<meta>` in `layout.tsx`.
+- Tests: `apps/web/__tests__/bookmark-sync.test.ts` (sync engine, device id, CSP), `apps/api/src/rest/bookmarks.controller.spec.ts`.
+
+#### Changed
+- `public/sw.js` rewritten (v3): API origin passed at registration; network-first pages with offline fallback; cache-first only for hashed static assets; API allowlist with 6 s timeout and 200-entry cap; bookmarks never cached; real `sync` handler that PUTs the outbox and notifies pages.
+- `bookmarks.controller.ts`: `userId` must be a UUID (or legacy `local`), `articleIds` validated and deduped (≤ 1000).
+
+#### Verification
+- `pnpm test`: 149/149 passing (18 files). `tsc --noEmit` clean for api and web; eslint clean on changed files.
+- The in-app browser pane can't register service workers, so the production build was checked in headless Chrome with a throwaway profile. Setup: a temporary copy of the web app built with `NEXT_PUBLIC_API_URL=http://localhost:4100/api`, served statically on :4300, with a small proxy on :4100 → the dev API so the "API" could be stopped. The temp copy, profile and test bookmark rows were removed afterwards.
+  - Worker registered by the app; caches `ht-pages-v3` (8 pages incl. offline page), `ht-static-v3` (hashed chunks, fonts, icons), `ht-api-v3` (`feed`, `events` only).
+  - Bookmark → PUT with the device UUID → server held it.
+  - API down → second bookmark stayed pending, outbox entry written, Saved page said "will back up when you're online".
+  - Both servers down → home feed rendered from the API cache (20 articles), saved article opened, an uncached page showed `offline.html`.
+  - API back → on app start the pending set was sent and the server held both; a later removal was sent on the `online` event without a reload.
+  - `GET /api/bookmarks?userId=alice` → 400.
+- Not exercised: the service worker `sync` event with the page closed (can't be triggered from automation). The code path is reviewed only.
+
 ### ADR-005 — Live events over WebSockets with exponential backoff · 2026-10-24
 
 #### Added
@@ -264,11 +290,11 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
 | **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
 | **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **95%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`. Remaining: Redis/sticky-session fan-out before scaling out. |
-| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
+| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **90%** | Per-device bookmark backup via outbox + Background Sync, service worker v3 (network-first pages, hashed-asset cache, API allowlist cache, offline page), CSP meta. Remaining: host security headers once hosting is chosen; cross-device sync arrives with ADR-007 accounts. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
 | **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 33 curated RSS feeds incl. Times of India). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
 
-**Overall Platform Implementation:** **~73%** across ADR-001–007 (was ~68%; initial audit baseline 51%).
+**Overall Platform Implementation:** **~76%** across ADR-001–007 (was ~73%; initial audit baseline 51%).
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

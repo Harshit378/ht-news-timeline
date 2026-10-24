@@ -3,6 +3,11 @@ import { IBM_Plex_Mono, IBM_Plex_Sans, Playfair_Display } from "next/font/google
 import "./globals.css";
 import LayoutWrapper from "./LayoutWrapper";
 import { THEME_BOOT_SCRIPT } from "./lib/theme-boot";
+import { buildCsp } from "./lib/csp";
+import { API_BASE_URL, wsUrl } from "./lib/api-client";
+
+// Production only: the dev server needs eval and its own websocket for hot reload.
+const CSP = process.env.NODE_ENV === "production" ? buildCsp(API_BASE_URL, wsUrl()) : null;
 
 const playfair = Playfair_Display({
   variable: "--font-playfair",
@@ -55,6 +60,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
+        {CSP && <meta httpEquiv="Content-Security-Policy" content={CSP} />}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body

@@ -125,6 +125,20 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Enables uninterrupted offline reading and zero-data-loss bookmarking while supporting native home-screen installation (`manifest.json`).
   * **Negative:** Requires rigorous cache-version cleanup logic in `sw.js` (checking every 60 seconds) to prevent stale UI assets after deployments.
+* **Implementation notes (24 Oct 2026):**
+  * **Identity:** until ADR-007 accounts exist, bookmarks belong to an anonymous per-device UUID (`app/lib/device.ts`, `ht_timeline_device_v1`). The API accepts a UUID or the legacy `local` and rejects anything else. The server copy is therefore a per-device backup; on sign-in (ADR-007) the client will merge its set into the account, with no change to the outbox.
+  * **Outbox (`app/lib/bookmark-sync.ts`):** the device is the source of truth. Any change marks the full set pending (`ht_timeline_bookmark_sync_v1`) and sends one idempotent `PUT /api/bookmarks` after a 1 s debounce, one request at a time. Triggers: change, app start, `online`, tab visible, and Capacitor `resume`. Offline errors stay pending and call `requestBackgroundSync('sync-bookmarks')`. 4xx stops retrying until the set changes; 5xx retries on the next trigger.
+  * **Background Sync:** the pending request is also written to Cache Storage (`ht-outbox` → `/__outbox/bookmarks`), so the service worker's `sync` handler can send it with the page closed and tell open pages (`bookmarks-synced`). This is Chromium-only; Safari and the iOS/Android WebViews rely on the page triggers above. The server side is the existing atomic `$transaction` in `NewsStore.putBookmarks`.
+  * **Service worker (`public/sw.js`, v3):** registered as `/sw.js?api=<API origin>`, and only that origin's `/api/*` counts as API.
+    * Pages: network-first → cached page → `/offline.html`, so a deploy shows up at once.
+    * `/_next/static`, fonts, icons: cache-first (content-hashed).
+    * API GETs: network-first with a 6 s timeout, then cache, for an allowlist (`feed`, `articles`, `timeline`, `topics`, `trending`, `breaking`, `summaries`, `events`), capped at 200 entries. Bookmarks, health and feed config are never cached.
+    * Old caches are deleted on activate, and the 60 s update check is kept.
+  * **Offline reading:** saved articles are full snapshots in `localStorage` and open without a network, along with the last feed and timelines from the API cache.
+  * **Sanitization:** RSS text is tag-stripped at ingest (`rss.service.ts`), and React escapes all article text. The only raw HTML is the app's own theme boot script.
+  * **CSP:** production builds ship a `<meta>` CSP (`app/lib/csp.ts`): `default-src 'self'`, `connect-src` limited to the API and socket origins, `object-src 'none'`, `base-uri 'self'`. `'unsafe-inline'` scripts are required by Next's static export.
+  * **Headers to set once hosting is chosen:** `Content-Security-Policy` (same policy plus `frame-ancestors 'none'`), `Cache-Control: no-cache` for `/sw.js`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+  * **Native:** the Capacitor shell (Path A) uses the same outbox; the service worker is skipped there. `expo-sqlite` / NetInfo apply only to the React Native Path B.
 
 ---
 

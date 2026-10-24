@@ -5,6 +5,22 @@ import PageHeader from '@/app/components/shell/PageHeader';
 import EmptyState from '@/app/components/shell/EmptyState';
 import BookmarkRow from '@/app/components/timeline/BookmarkRow';
 import { useFeed } from '@/app/contexts/FeedContext';
+import type { BookmarkSyncStatus } from '@/app/lib/bookmark-sync';
+
+function sinceLabel(iso: string) {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours} h ago` : new Date(iso).toLocaleDateString();
+}
+
+/** Where this device's bookmarks stand against the server backup (ADR-006). */
+function syncLabel({ state, lastSyncedAt }: BookmarkSyncStatus) {
+  if (state === 'pending') return "Saved on this device · will back up when you're online";
+  if (state === 'error') return "Saved on this device · backup failed, we'll retry when you change your list";
+  return lastSyncedAt ? `Saved on this device · backed up ${sinceLabel(lastSyncedAt)}` : 'Saved on this device';
+}
 
 type Tab = 'all' | 'unread' | 'read';
 
@@ -15,7 +31,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function BookmarksPage() {
-  const { savedArticles, readIds, setRead } = useFeed();
+  const { savedArticles, readIds, setRead, bookmarkSync } = useFeed();
   const [tab, setTab] = useState<Tab>('all');
 
   const readCount = savedArticles.filter((a) => readIds.has(a.id)).length;
@@ -72,6 +88,11 @@ export default function BookmarksPage() {
           </div>
         ))}
       </dl>
+      {savedArticles.length > 0 && (
+        <p className="px-4 pt-3 font-mono text-[10px] uppercase tracking-wider text-muted" role="status">
+          {syncLabel(bookmarkSync)}
+        </p>
+      )}
 
       {visible.length === 0 ? (
         <EmptyState

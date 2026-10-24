@@ -80,6 +80,18 @@ export async function getLiveEvents(): Promise<LiveEventTimeline[]> {
   return data;
 }
 
+/** HTTP status of a failed request, or undefined when there was no response. */
+export function httpStatusOf(err: unknown): number | undefined {
+  return axios.isAxiosError(err) ? err.response?.status : undefined;
+}
+
+export const BOOKMARKS_URL = `${API_BASE_URL.replace(/\/+$/, '')}/bookmarks`;
+
+/** Replaces this device's server-side bookmark set (ADR-006). */
+export async function putBookmarks(userId: string, articleIds: string[]): Promise<void> {
+  await api.put('/bookmarks', { userId, articleIds });
+}
+
 export async function getFeed(page = 1, category?: ArticleCategory): Promise<Paged<FeedArticle>> {
   const { data } = await api.get<Paged<FeedArticle>>('/feed', { params: { page, category } });
   return data;
