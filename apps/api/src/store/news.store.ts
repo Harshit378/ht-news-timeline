@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { REGION_SHARE, interleaveByRegion } from './region';
 import {
   ArticleRecord,
   BookmarkRecord,
@@ -63,8 +64,29 @@ export class NewsStore {
     }
   }
 
-  async listArticles(category?: string, { skip = 0, take = 200 }: { skip?: number; take?: number } = {}) {
+  /**
+   * Feed articles, newest first. With `region` (ADR-009), that region's articles fill about REGION_SHARE of
+   * each page, interleaved with the rest (see `interleaveByRegion`) — a boost, not a filter.
+   */
+  async listArticles(
+    category?: string,
+    { skip = 0, take = 200, region = null }: { skip?: number; take?: number; region?: string | null } = {},
+  ) {
     const filter = category && category !== 'all' ? category : undefined;
+    if (this.dbReady && region) {
+      const rows = await this.prisma.$queryRaw<(Prisma.ArticleGetPayload<object> & { slot: number })[]>`
+        WITH ranked AS (
+          SELECT *, COALESCE("region" = ${region}, false) AS local,
+            row_number() OVER (PARTITION BY COALESCE("region" = ${region}, false) ORDER BY "publishedAt" DESC, "id") AS rn
+          FROM "Article"
+          WHERE "inFeed" = true ${filter ? Prisma.sql`AND "category" = ${filter}` : Prisma.empty}
+        )
+        SELECT * FROM ranked
+        ORDER BY rn::float8 / CASE WHEN local THEN ${REGION_SHARE}::float8 ELSE ${1 - REGION_SHARE}::float8 END,
+          "publishedAt" DESC, "id"
+        OFFSET ${skip} LIMIT ${take}`;
+      return rows.map((a) => this.mapArticle(a));
+    }
     if (this.dbReady) {
       const rows = await this.prisma.article.findMany({
         where: { inFeed: true, ...(filter && { category: filter }) },
@@ -74,9 +96,10 @@ export class NewsStore {
       });
       return rows.map((a) => this.mapArticle(a));
     }
-    const items = [...this.articles.values()]
-      .filter((a) => !filter || a.category === filter)
-      .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+    const matching = [...this.articles.values()].filter((a) => !filter || a.category === filter);
+    const items = region
+      ? interleaveByRegion(matching, region)
+      : matching.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
     return items.slice(skip, skip + take);
   }
 
@@ -220,9 +243,10 @@ export class NewsStore {
     const upgrades = records.flatMap((r) => {
       const row = byId.get(r.id) ?? (r.url ? byUrl.get(r.url) : undefined);
       if (!row) return [];
-      const data: { excerpt?: string; imageUrl?: string } = {};
+      const data: { excerpt?: string; imageUrl?: string; region?: string } = {};
       if (r.excerpt.length > row.excerpt.length + 20) data.excerpt = r.excerpt;
       if (!row.imageUrl && r.imageUrl) data.imageUrl = r.imageUrl;
+      if (!row.region && r.region) data.region = r.region;
       return Object.keys(data).length ? [this.prisma.article.update({ where: { id: row.id }, data })] : [];
     });
     if (upgrades.length) await this.prisma.$transaction(upgrades);
@@ -285,6 +309,17 @@ export class NewsStore {
       });
     });
     return saved;
+  }
+
+  /**
+   * Tags articles stored before regions existed (ADR-009) from their outlet's curated feed.
+   * Idempotent: only rows with no region are touched.
+   */
+  async backfillRegions(bySource: Map<string, string>) {
+    for (const [source, region] of bySource) {
+      for (const a of this.articles.values()) if (a.source === source && !a.region) a.region = region;
+      if (this.dbReady) await this.prisma.article.updateMany({ where: { source, region: null }, data: { region } });
+    }
   }
 
   /** When the BigQuery history backfill last ran for a story (ADR-008 step 5); null if never. */
@@ -455,6 +490,7 @@ export class NewsStore {
       storyClusterId: a.storyClusterId,
       tone: a.tone,
       kind: a.kind ?? 'report',
+      region: a.region ?? null,
     };
   }
 

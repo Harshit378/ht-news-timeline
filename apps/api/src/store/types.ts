@@ -16,6 +16,8 @@ export interface ArticleRecord {
   tone: number | null;
   /** "report" (default) or "milestone" (Wikipedia event, ADR-008 step 6). */
   kind?: string;
+  /** ISO 3166-1 alpha-2 country of the outlet, "GLOBAL", or null/undefined when unknown (ADR-009). */
+  region?: string | null;
 }
 
 export interface BookmarkRecord {
@@ -53,6 +55,8 @@ export interface RssFeedRecord {
   isActive: boolean;
   origin: string;
   source: string | null;
+  /** ISO 3166-1 alpha-2 or "GLOBAL" (ADR-009). */
+  region?: string | null;
   etag: string | null;
   lastModified: string | null;
   lastChecked: Date | null;

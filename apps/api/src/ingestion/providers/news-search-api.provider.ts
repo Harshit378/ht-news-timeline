@@ -5,6 +5,7 @@ import { normalizeArticleUrl } from '../../rss/rss-ingestion.service';
 import { clipText } from '../../rss/rss.service';
 import { ArticleRecord } from '../../store/types';
 import { sanitizeStoryQuery } from '../gdelt-doc.service';
+import { parseRegion } from '../../store/region';
 import { UsageTracker, dayPeriod } from '../usage-tracker';
 import { NewsProvider, ProviderStatus } from './news-provider';
 
@@ -19,6 +20,8 @@ export interface NewsApiArticle {
   published_at?: string;
   source?: string;
   categories?: string[];
+  /** Country of the outlet, lower-case ("us", "in"). */
+  locale?: string | null;
 }
 
 const DEFAULT_BASE = 'https://api.thenewsapi.com/v1';
@@ -77,6 +80,7 @@ export function toArticleRecord(a: NewsApiArticle, fallbackCategory = 'world', n
     importance: 'normal',
     storyClusterId: `${category}-${publishedAt.toISOString().slice(0, 10)}`,
     tone: null,
+    region: parseRegion(a.locale),
   };
 }
 

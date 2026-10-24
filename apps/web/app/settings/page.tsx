@@ -14,6 +14,9 @@ import { useTheme, type ThemePreference } from '@/app/contexts/ThemeContext';
 import { API_BASE_URL } from '@/app/lib/api-client';
 import { APP_NAME, APP_VERSION } from '@/app/lib/app-info';
 import { clearRecentSearches } from '@/app/lib/recent-searches';
+import { useFeed } from '@/app/contexts/FeedContext';
+import { REGIONS, regionFromLocale } from '@/app/lib/region';
+import { useHydrated } from '@/app/hooks/useHydrated';
 
 const THEMES: { id: ThemePreference; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -32,6 +35,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function SettingsPage() {
   const { preference, setPreference } = useTheme();
+  const { regionSetting, region, setRegionSetting } = useFeed();
+  const hydrated = useHydrated();
+  const detected = hydrated ? regionFromLocale(navigator.language) : null;
+  const detectedLabel = REGIONS.find((r) => r.code === detected)?.label ?? detected;
+  const regionOptions = [
+    { id: 'auto', label: detectedLabel ? `Automatic (${detectedLabel})` : 'Automatic' },
+    ...REGIONS.map((r) => ({ id: r.code as string, label: r.label })),
+    { id: 'off', label: 'No preference' },
+  ];
   const [feeds, setFeeds] = useState<RSSFeed[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(true);
   const [feedsError, setFeedsError] = useState<string | null>(null);
@@ -74,6 +86,33 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </Section>
+
+        <Section title="Region">
+          <p className="mb-3 text-sm text-muted">
+            News from your region ranks higher in the feed. Nothing is hidden, and your location never leaves this
+            device.
+          </p>
+          <div className="divide-y divide-border rounded-[10px] border border-border" role="radiogroup" aria-label="Region">
+            {regionOptions.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={regionSetting === id}
+                onClick={() => setRegionSetting(id)}
+                className="flex min-h-[48px] w-full items-center justify-between px-4 text-left text-sm text-ink active:bg-surface"
+              >
+                {label}
+                {regionSetting === id && <span className="h-2.5 w-2.5 rounded-full bg-accent" aria-hidden />}
+              </button>
+            ))}
+          </div>
+          {hydrated && (
+            <p className="mt-2 font-mono text-[11px] text-muted">
+              {region ? `Boosting ${REGIONS.find((r) => r.code === region)?.label ?? region}` : 'No regional boost'}
+            </p>
+          )}
         </Section>
 
         <Section title="Custom RSS feeds">

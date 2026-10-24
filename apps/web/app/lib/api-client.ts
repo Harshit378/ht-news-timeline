@@ -101,8 +101,9 @@ export async function putBookmarks(userId: string, articleIds: string[]): Promis
   await api.put('/bookmarks', { userId, articleIds });
 }
 
-export async function getFeed(page = 1, category?: ArticleCategory): Promise<Paged<FeedArticle>> {
-  const { data } = await api.get<Paged<FeedArticle>>('/feed', { params: { page, category } });
+/** `region` (ADR-009) boosts that country's outlets in the ranking; omit for the global order. */
+export async function getFeed(page = 1, category?: ArticleCategory, region?: string): Promise<Paged<FeedArticle>> {
+  const { data } = await api.get<Paged<FeedArticle>>('/feed', { params: { page, category, region } });
   return data;
 }
 

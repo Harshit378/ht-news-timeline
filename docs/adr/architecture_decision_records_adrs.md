@@ -16,7 +16,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync Architecture | Accepted | Oct 2026 |
 | **ADR-007** | Tiered Freemium & B2B Team Subscription Monetization Architecture | Proposed | Oct 2026 |
 | **ADR-008** | Multi-Source News Ingestion: Search API + RSS Archive + GDELT History (amends ADR-003) | Proposed | Oct 2026 |
-| **ADR-009** | Region-Aware Feed Selection (extends ADR-008) | Proposed | Oct 2026 |
+| **ADR-009** | Region-Aware Feed Selection (extends ADR-008) | Accepted | Oct 2026 |
 
 ---
 
@@ -218,7 +218,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 
 ## ADR-009: Region-Aware Feed Selection (extends ADR-008)
 
-* **Status:** Proposed
+* **Status:** Accepted (implemented 25 Oct 2026)
 * **Date:** 24 Oct 2026
 * **Context:**
   * ADR-008 layer 2 seeds curated publisher RSS (`apps/api/src/rss/curated-feeds.ts`). The list was US/UK-centric until Times of India feeds were added on 24 Oct 2026 for Indian news. Every user sees the same global feed, so an Indian reader gets Indian stories only by chance of recency.
@@ -240,3 +240,4 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Positive:** Indian users see Indian news first without extra polling; shared archive and caching are unchanged; no new third-party service in steps 1–3; opt-out is trivial.
   * **Negative:** A schema change and backfill; region tags on feeds are maintained by hand; locale is only a proxy for location (travellers, VPNs), hence the explicit setting; boosting adds a ranking rule that needs tuning.
   * **Rejected alternatives:** *Per-user ingestion* (cost and archive fragmentation); *hard filtering by region* (filter bubble, hides global stories); *precise GPS or city geolocation* (permission friction and sensitive data for little gain with national feeds).
+* **Implementation notes (25 Oct 2026):** implemented as decided, with one change: instead of ranking regional stories as if newer (a time bonus), the reader's region gets a fixed ~40% share of every feed page, interleaved and newest first. Measured on the dev data, any time bonus let the most prolific regional outlet fill the whole first page, which is the filter bubble this ADR wanted to avoid. `GLOBAL` items are not boosted. Region comes from the Settings choice or the device locale only (no IP lookup yet); city-level feeds remain a later extension.

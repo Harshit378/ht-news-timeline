@@ -27,6 +27,8 @@ model Article {
   inFeed         Boolean    @default(true)
   /// "report" (a news article) or "milestone" (a dated event from Wikipedia, ADR-008 step 6).
   kind           String     @default("report")
+  /// ISO 3166-1 alpha-2 country of the outlet, "GLOBAL", or null when unknown (ADR-009).
+  region         String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   bookmarks      Bookmark[]
@@ -129,6 +131,8 @@ model RssFeed {
   isActive     Boolean   @default(true)
   /// 'curated' (seeded publisher feeds, ADR-008) or 'user' (added via /api/rss/feeds).
   origin       String    @default("user")
+  /// ISO 3166-1 alpha-2 or "GLOBAL" (ADR-009); copied to the feed's articles.
+  region       String?
   /// Display name for articles from this feed, e.g. "BBC News"; falls back to title.
   source       String?
   etag         String?
