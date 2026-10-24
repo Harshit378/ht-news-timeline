@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Planned & In Progress
 - **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
 - **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
-- **WebSocket Exponential Backoff (ADR-005):** Upgrade `useWebSocket.ts` to compute true exponential backoff (`reconnectInterval * 2^attempts`) up to 5 retries.
+- **Live events scale-out (ADR-005 follow-up):** sticky sessions or Redis pub/sub fan-out in `EventsGateway.broadcast` before running more than one API instance.
 - **Background Bookmark Sync Trigger (ADR-006):** Connect client bookmark mutations in `FeedContext.tsx` to `requestBackgroundSync('sync-bookmarks')` and reconcile against `PUT /api/bookmarks`.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 - **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
@@ -225,6 +225,34 @@ Architectural pivot from a desktop-centric 3-column interface to a mobile-first 
 
 ---
 
+### ADR-005 — Live events over WebSockets with exponential backoff · 2026-10-24
+
+#### Added
+- `apps/web/app/features/live-events/backoff.ts`: `reconnectDelay` (1 → 2 → 4 → 8 → 16 s, ±20% jitter, capped at 30 s).
+- `apps/web/app/features/live-events/liveEvents.ts`: `parseMessage`, `isUpdatePayload`, `applyUpdate` (dedupe by update id, newest first, takes the pushed status).
+- `wsUrl()` and `getLiveEvents()` in `apps/web/app/lib/api-client.ts`; `NEXT_PUBLIC_WS_URL` override.
+- `/live` connection badge: Live / Connecting… / Reconnecting… (n/5) / Offline (with Retry, and "showing saved updates" when cached). New updates flash briefly (`live-fresh` keyframe).
+- Gateway heartbeat (30 s ping/pong, half-open sockets terminated) and Origin check (close 1008 via `isAllowedOrigin`).
+- `POST /api/events` auth (`EVENTS_ADMIN_TOKEN` bearer, timing-safe compare; open in dev, 403 in production without a token) and body validation.
+- Tests: `apps/web/__tests__/live-events.test.ts`, `apps/api/src/events/events.spec.ts` (real `ws` server: broadcast reaches a client, bad Origin closed; heartbeat; auth; validation).
+
+#### Changed
+- `useWebSocket` rewritten: status (`connecting | open | reconnecting | offline`), retry timer cleared on unmount, no reconnect after a deliberate close, `reconnect()`, `onMessage` / `onOpen` callbacks, wake-up on `online` and `visibilitychange`.
+- `LiveEventsContext` now uses the API instead of `MOCK_TIMELINES`, refetches on every socket open (gap fill after reconnect), caches to `ht_timeline_live_v1`, and falls back to the cache when offline. The socket is opened by `useLiveConnection()` on `/live` only.
+- Web live-event types aligned with the API (timeline with `updates[]`; nested `LiveEvent[]` removed). `LiveEventTimeline.tsx` renders the update list.
+
+#### Verification
+- `pnpm test`: 132/132 passing (16 files). `tsc --noEmit` clean for api and web; eslint clean on changed files.
+- Browser (`localhost:4200/live` against the running API): badge "Live"; a `curl -X POST /api/events` update appeared on the open event page immediately. Restarting the API (nx watch) showed "Reconnecting… (1/5)" and was back to "Live" in ~1.2 s, with no console errors.
+- Not exercised in the browser: exhausting all 5 retries to "Offline" and the cached-list fallback (covered only by code review). Would require stopping the API for ~30 s.
+
+### Curated RSS — Times of India (Indian news) · 2026-10-24
+- Added 10 Times of India feeds to `apps/api/src/rss/curated-feeds.ts` (23 → 33 curated feeds): Top Stories, India, World (`world`); Technology; Business (`finance`); Science; Health & Fitness; Entertainment (`culture`); Sports and Cricket (`sports`). Each returned HTTP 200 with 19–47 items on 2026-10-24.
+- Feeds are seeded on the next API boot; no migration. They use the existing ten categories, so there is no UI change.
+- Decision: a region-aware feed selection (by the user's city/country) is a separate concern. Written up as ADR-009 (Proposed), not implemented.
+- Verification: `pnpm test` 114/114 passing.
+- Added ADR-009 (region-aware feed selection) to the ADR index and `docs/adr/architecture_decision_records_adrs.md`: ingest globally, tag feeds/articles by country, derive region from setting → locale → coarse IP, boost rather than filter. Docs only; no code changes.
+
 ## Appendix: Architecture Decision Records (ADR) Compliance Ledger
 
 Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_records_adrs.md`](adr/architecture_decision_records_adrs.md):
@@ -235,12 +263,12 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 | **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
 | **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
 | **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
-| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
+| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **95%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`. Remaining: Redis/sticky-session fan-out before scaling out. |
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
 | **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
-| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 23 curated RSS feeds). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 33 curated RSS feeds incl. Times of India). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
 
-**Overall Platform Implementation:** **~68%** across ADR-001–007 (was ~64%; initial audit baseline 51%).
+**Overall Platform Implementation:** **~73%** across ADR-001–007 (was ~68%; initial audit baseline 51%).
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

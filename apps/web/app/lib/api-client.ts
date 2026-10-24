@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { ArticleCategory, FeedArticle } from '@/app/types/article';
+import type { LiveEventTimeline } from '@/app/features/live-events/types';
 
 /**
  * Typed client for the NestJS API (apps/api). The response shapes mirror
@@ -62,6 +63,21 @@ export interface TopicCount {
 /** True when the request never got an HTTP response (no network / server down) — not merely slow. */
 export function isOfflineError(err: unknown): boolean {
   return axios.isAxiosError(err) && !err.response && err.code !== 'ECONNABORTED' && err.code !== 'ETIMEDOUT';
+}
+
+/**
+ * Live events socket (ADR-005). NEXT_PUBLIC_WS_URL wins; otherwise derived from the API URL:
+ * http://host:4000/api → ws://host:4000/ws/events.
+ */
+export function wsUrl(apiBase: string = API_BASE_URL, override = process.env.NEXT_PUBLIC_WS_URL): string {
+  if (override) return override;
+  const origin = apiBase.replace(/\/+$/, '').replace(/\/api$/, '');
+  return `${origin.replace(/^http/, 'ws')}/ws/events`;
+}
+
+export async function getLiveEvents(): Promise<LiveEventTimeline[]> {
+  const { data } = await api.get<LiveEventTimeline[]>('/events');
+  return data;
 }
 
 export async function getFeed(page = 1, category?: ArticleCategory): Promise<Paged<FeedArticle>> {

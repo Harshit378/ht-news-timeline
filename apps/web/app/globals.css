@@ -50,6 +50,14 @@
   color-scheme: light;
 }
 
+/* A live update arriving over the WebSocket (ADR-005). */
+@keyframes live-fresh {
+  from {
+    background-color: var(--accent-soft);
+    border-color: var(--accent);
+  }
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

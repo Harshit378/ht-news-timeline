@@ -16,6 +16,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync Architecture | Accepted | Oct 2026 |
 | **ADR-007** | Tiered Freemium & B2B Team Subscription Monetization Architecture | Proposed | Oct 2026 |
 | **ADR-008** | Multi-Source News Ingestion: Search API + RSS Archive + GDELT History (amends ADR-003) | Proposed | Oct 2026 |
+| **ADR-009** | Region-Aware Feed Selection (extends ADR-008) | Proposed | Oct 2026 |
 
 ---
 
@@ -100,6 +101,14 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Prevents thundering-herd server overload during network blips while delivering sub-second breaking news dots and live timeline updates.
   * **Negative:** Stateful WebSocket connections require sticky sessions or a Redis adapter when horizontally scaling NestJS instances.
+* **Implementation notes (24 Oct 2026):**
+  * **Client:** `useWebSocket` retries with capped exponential backoff (`backoff.ts`: 1 → 2 → 4 → 8 → 16 s, ±20% jitter, max 30 s) for 5 attempts, then shows *Offline* with a Retry button. The `online` event and the tab becoming visible start a fresh retry budget. Unmounting no longer triggers a reconnect.
+  * **Data:** `LiveEventsContext` loads `GET /api/events` (web types now mirror the API: one timeline with `updates[]`) and **refetches on every (re)connect**, so updates missed while offline are filled in. Pushed updates are deduped by id. The socket is open only while `/live` is mounted.
+  * **Fallback:** the last good list is cached in `localStorage` (`ht_timeline_live_v1`) and shown when the API is unreachable.
+  * **Socket URL:** `NEXT_PUBLIC_WS_URL`, or derived from `NEXT_PUBLIC_API_URL` (`http://host:4000/api` → `ws://host:4000/ws/events`).
+  * **Gateway:** 30 s ping/pong heartbeat drops half-open sockets; browser connections whose `Origin` fails the CORS policy (`isAllowedOrigin`) are closed with 1008.
+  * **Posting:** `POST /api/events` requires `Authorization: Bearer $EVENTS_ADMIN_TOKEN`. Without a token it is open in development and returns 403 in production. Body is validated (message 1–1000 chars, importance in the allowed set).
+  * **Scaling:** still single-instance. Before running more than one API instance, add sticky sessions or a Redis pub/sub fan-out in `EventsGateway.broadcast`.
 
 ---
 
@@ -184,3 +193,30 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Negative:** Introduces a recurring cost (≈ $19–$49/mo at launch) and per-day request quotas that need caching and monitoring; more moving parts (4 sources, background jobs, a real database); licence terms must be respected — store only headline, excerpt, link and metadata, never full article bodies, unless a source explicitly allows it.
   * **Rejected alternatives:** *Web crawling* (brittle, paywalls, ToS/legal risk, high ops cost — revisit only for full text from sources that allow it); *Google News RSS search* (not an official API, commercial use unclear); *GDELT-only* (rate limits and 3-month DOC window make the core promise impossible).
 * **Sources (pricing checked Oct 2026):** [TheNewsAPI pricing](https://www.thenewsapi.com/pricing), [GNews pricing & limits](https://apiterms.com/api/gnews.io/), [NewsData.io comparison](https://newsdata.io/blog/news-api-comparison/), [Best news APIs 2026](https://thunderbit.com/blog/best-news-apis-compared).
+
+---
+
+## ADR-009: Region-Aware Feed Selection (extends ADR-008)
+
+* **Status:** Proposed
+* **Date:** 24 Oct 2026
+* **Context:**
+  * ADR-008 layer 2 seeds curated publisher RSS (`apps/api/src/rss/curated-feeds.ts`). The list was US/UK-centric until Times of India feeds were added on 24 Oct 2026 for Indian news. Every user sees the same global feed, so an Indian reader gets Indian stories only by chance of recency.
+  * Region cannot be bolted on in the UI: articles carry no region, feeds are not tagged, and `/api/feed` ranks only by category and date.
+  * Constraints: location is personal data, ingestion is shared and polled once for all users (ADR-008), RSS is national rather than city-level, and LLM prompts must not carry user data (ADR-004).
+* **Decision:**
+  1. **Ingest globally, select at read time.** All curated feeds keep being polled once. Per-user fetching is rejected: it multiplies polling and fragments the shared archive.
+  2. **Tag by region.** Add `region` (ISO 3166-1 alpha-2, or `GLOBAL`) to `CuratedFeed` and `RssFeed`, copied to `Article.region` on ingest. For example, Times of India is `IN`, BBC and the Guardian `GB`, NPR and ESPN `US`, Al Jazeera and NASA `GLOBAL`. Migration backfills existing rows from their feed. GDELT articles use `sourcecountry` where present.
+  3. **The unit is country, not city.** National feeds cannot be filtered by city. City-level local news (for example TOI city feeds) is an optional later extension via a `city` tag on feeds.
+  4. **Where the user's region comes from, in order:** (a) explicit setting in the app; (b) device or browser locale (`Accept-Language` region / `Intl`); (c) a coarse country-level IP lookup, never precise geolocation and never prompting for permission. The result is stored as a user preference (local storage, or the account once ADR-007 accounts exist) and sent as `?region=IN` to `/api/feed` and `/api/timeline`.
+  5. **Boost, don't filter.** `/api/feed` ranks the user's region and `GLOBAL` first, within the existing category and date ordering. Other regions stay reachable, so the app does not become a filter bubble. A "Region" control in settings lets the user change or clear it. The default with no region is today's behaviour.
+  6. **Privacy.** IPs are used only for the lookup and never logged or stored. Region is not included in LLM prompts or summary cache keys (ADR-004); summaries stay global.
+* **Implementation steps (in order):**
+  1. Add `region` to `CuratedFeed`, `RssFeed` and `Article` (Prisma migration plus backfill); tag all curated feeds.
+  2. Accept an optional `region` on `/api/feed` and add the region boost to the store query and in-memory fallback, with tests.
+  3. Web: region setting, locale-based default, pass the parameter from `NewsContext`.
+  4. Optional: coarse IP fallback and city-level feeds.
+* **Consequences:**
+  * **Positive:** Indian users see Indian news first without extra polling; shared archive and caching are unchanged; no new third-party service in steps 1–3; opt-out is trivial.
+  * **Negative:** A schema change and backfill; region tags on feeds are maintained by hand; locale is only a proxy for location (travellers, VPNs), hence the explicit setting; boosting adds a ranking rule that needs tuning.
+  * **Rejected alternatives:** *Per-user ingestion* (cost and archive fragmentation); *hard filtering by region* (filter bubble, hides global stories); *precise GPS or city geolocation* (permission friction and sensitive data for little gain with national feeds).
