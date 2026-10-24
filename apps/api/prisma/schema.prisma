@@ -136,3 +136,14 @@ model RssFeed {
   itemCount    Int       @default(0)
   addedAt      DateTime  @default(now())
 }
+
+/// Paid / metered upstream usage per period (ADR-008): requests per UTC day for the News Search API,
+/// bytes scanned per month for BigQuery. Survives restarts so quotas hold.
+model ProviderUsage {
+  /// "<provider>:<period>", e.g. "news-api:2026-10-25" or "bigquery:2026-10".
+  id        String   @id
+  provider  String
+  period    String
+  amount    Float    @default(0)
+  updatedAt DateTime @updatedAt
+}

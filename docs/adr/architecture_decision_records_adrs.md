@@ -210,6 +210,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Negative:** Introduces a recurring cost (≈ $19–$49/mo at launch) and per-day request quotas that need caching and monitoring; more moving parts (4 sources, background jobs, a real database); licence terms must be respected — store only headline, excerpt, link and metadata, never full article bodies, unless a source explicitly allows it.
   * **Rejected alternatives:** *Web crawling* (brittle, paywalls, ToS/legal risk, high ops cost — revisit only for full text from sources that allow it); *Google News RSS search* (not an official API, commercial use unclear); *GDELT-only* (rate limits and 3-month DOC window make the core promise impossible).
 * **Sources (pricing checked Oct 2026):** [TheNewsAPI pricing](https://www.thenewsapi.com/pricing), [GNews pricing & limits](https://apiterms.com/api/gnews.io/), [NewsData.io comparison](https://newsdata.io/blog/news-api-comparison/), [Best news APIs 2026](https://thunderbit.com/blog/best-news-apis-compared).
+* **Step 3 (25 Oct 2026):** adapter built in TheNewsAPI's format, off until `NEWS_API_KEY` is set; daily request quota persisted in `ProviderUsage`, 15-minute query cache. Choosing and paying for a provider is still open.
 
 ---
 

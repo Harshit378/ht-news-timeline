@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 
+### ADR-008 step 3 — News Search API adapter (off by default) · 2026-10-25
+- Added `ingestion/providers/news-search-api.provider.ts` (`NewsSearchApiProvider`, id `news-api`) in TheNewsAPI's `/v1/news/all` format. No provider is committed to: it stays disabled until `NEWS_API_KEY` is set (`NEWS_API_BASE_URL` overrides the endpoint for a compatible vendor).
+- Records use the shared sha1-of-normalized-URL id (cross-source duplicates collapse); vendor categories map to ours both ways.
+- Quota: `NEWS_API_DAILY_LIMIT` requests per UTC day (default 100, the free tier), counted in a new `ProviderUsage` table (migration `20261024183411_provider_usage`) via `UsageTracker`, so restarts don't reset it. Over quota the provider returns nothing instead of failing, so story search is not marked degraded.
+- 15-minute per-query cache (200 entries). Errors are reported as `HTTP <status>`; the token-bearing URL is never logged.
+- `NewsProvider.enabled` added; `NewsSearchService` skips disabled providers. `ProviderStatus.state` gains `disabled`. `/api/health` lists `news-api` (disabled, or `quota: {used, limit}` when on).
+- `.env.example` documents the new settings from this and the previous workstreams (Anthropic, token cap, `EVENTS_ADMIN_TOKEN`, `REDIS_URL`, News API).
+- Tests: `news-search-api.provider.spec.ts` (record mapping, disabled without key, params, cache, quota → not degraded, no token in errors, skipped when disabled). `pnpm test` 135/135.
+- Live: `/api/health` shows `news-api: disabled`; `/api/timeline?q=world series` still answers from RSS + GDELT. Not exercised against the real vendor (no key).
+
 ### Tests — placeholder suite replaced · 2026-10-25
 - Deleted `apps/web/__tests__/phase4.test.ts` (48 `expect(true).toBe(true)` placeholders). What it named is now covered by real tests: live events (`live-events.test.ts`), PWA/bookmark sync (`bookmark-sync.test.ts`), source comparison (`source-comparison.test.ts`), and the AI-summary and RSS client services (new `feature-services.test.ts`, which records requests through a stubbed axios adapter).
 - **Bug fixed while writing them:** `features/ai-summaries/summaryService.ts` had its own axios client with `NEXT_PUBLIC_API_URL + '/api/summaries'`, so with the documented `…/api` base URL it requested `/api/api/summaries`. It now uses the shared `api` client. `rssService.getRSSItems` called `/rss/feeds/:id/items`, a route the API doesn't have, and was unused — removed. Feed ids are now URL-encoded.

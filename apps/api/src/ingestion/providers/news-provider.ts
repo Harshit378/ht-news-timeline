@@ -2,7 +2,7 @@ import { ArticleRecord } from '../../store/types';
 
 export interface ProviderStatus {
   id: string;
-  state: 'ok' | 'cooldown' | 'error';
+  state: 'ok' | 'cooldown' | 'error' | 'disabled';
   cooldownUntil?: string | null;
   lastSuccessAt: string | null;
   lastError: string | null;
@@ -15,6 +15,8 @@ export interface ProviderStatus {
  */
 export interface NewsProvider {
   readonly id: string;
+  /** False when the provider isn't configured (e.g. no API key); search skips it. Defaults to true. */
+  readonly enabled?: boolean;
   /** Pulls recent articles for the home feed; `onBatch` stores them as they land. Returns the count. */
   fetchLatest?(onBatch: (batch: ArticleRecord[]) => Promise<void>): Promise<number>;
   /** Recent coverage of a story query. */

@@ -6,8 +6,10 @@ import { GdeltDocService } from './gdelt-doc.service';
 import { IngestionScheduler } from './ingestion.scheduler';
 import { NewsSearchService } from './news-search.service';
 import { GdeltDocProvider } from './providers/gdelt-doc.provider';
+import { NewsSearchApiProvider } from './providers/news-search-api.provider';
 import { NEWS_PROVIDERS } from './providers/news-provider';
 import { RssProvider } from './providers/rss.provider';
+import { UsageTracker } from './usage-tracker';
 
 @Module({
   imports: [SummariesModule, RssModule],
@@ -16,14 +18,16 @@ import { RssProvider } from './providers/rss.provider';
     GdeltBigQueryService,
     GdeltDocProvider,
     RssProvider,
+    UsageTracker,
+    { provide: NewsSearchApiProvider, useFactory: (usage: UsageTracker) => new NewsSearchApiProvider(usage), inject: [UsageTracker] },
     {
       provide: NEWS_PROVIDERS,
-      useFactory: (gdelt: GdeltDocProvider, rss: RssProvider) => [rss, gdelt],
-      inject: [GdeltDocProvider, RssProvider],
+      useFactory: (gdelt: GdeltDocProvider, rss: RssProvider, newsApi: NewsSearchApiProvider) => [rss, newsApi, gdelt],
+      inject: [GdeltDocProvider, RssProvider, NewsSearchApiProvider],
     },
     NewsSearchService,
     IngestionScheduler,
   ],
-  exports: [NewsSearchService, NEWS_PROVIDERS],
+  exports: [NewsSearchService, NEWS_PROVIDERS, UsageTracker],
 })
 export class IngestionModule {}
