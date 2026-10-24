@@ -111,3 +111,15 @@ describe('StoryBriefService source comparison', () => {
     expect(summarize).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('StoryBriefService with Wikipedia milestones', () => {
+  it('leaves milestones out of the brief input', async () => {
+    const { svc, summarize } = setup();
+    const milestones = ['m1', 'm2', 'm3'].map((id) => ({ ...rec(id, 'Wikipedia'), kind: 'milestone' }));
+    await svc.ensure('k|', 'k', [rec('a', 'ESPN'), ...milestones]);
+    expect(summarize).not.toHaveBeenCalled(); // 1 report from 1 source is not enough on its own
+    await svc.ensure('k2|', 'k2', [...three, ...milestones]);
+    const passed = (summarize.mock.calls[0] as unknown[])[2] as { kind?: string }[];
+    expect(passed.every((a) => a.kind !== 'milestone')).toBe(true);
+  });
+});

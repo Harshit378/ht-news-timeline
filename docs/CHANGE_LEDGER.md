@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
 - **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
 
+### ADR-008 step 6 — Wikipedia milestones on story timelines · 2026-10-25
+- `ingestion/wikimedia.ts` (pure): wikitext cleaning (refs, nested templates, file links with nested captions), date parsing (`24 February 2022`, `February 24, 2022`, year-less dates with the year from a parent heading) and extraction for the common timeline layouts — date headings → first sentence(s) beneath; dated bullets; prose opening "On <date>, …"; hub pages whose sections only point to a dated sub-timeline (`{{Main|… (7 October 2023 – …)}}`) → section title on its start date. Reference / See also / Notes sections and their subsections are skipped. `spreadMilestones` dedupes and samples ≤ 40 events evenly across time.
+- `WikimediaProvider` (search-only `NewsProvider`, id `wikipedia`): MediaWiki search for "timeline of <query>", first "Timeline of …" title sharing a word stem with the query ("Russia Ukraine" ~ "Russo-Ukrainian"), then `action=parse` wikitext. 24 h cache per query. User-Agent includes `WIKIMEDIA_CONTACT` when set; `WIKIMEDIA_MILESTONES=off` disables it.
+- `Article.kind` (`report` | `milestone`, migration `20261024183642_article_kind`); milestones are stored as story-only articles with a unique section URL (`…/wiki/Title?ht=<id>#Section`) and serialized with `kind`.
+- Milestones are kept out of AI brief input, source comparison and the story's report/source counts. `/story` renders them as gold diamond "Milestone" nodes with "From Wikipedia · CC BY-SA" links.
+- Tests: `wikimedia.spec.ts` (dates, cleaning, the four layouts, sampling, stem matching, record shape, provider page choice / cache / no match / off) and a brief test that milestones are excluded. `pnpm test` 147/147.
+- Live (temporary API instance on :4105 against the dev DB): "Gaza war" → Timeline of the Gaza war, 14 milestones from 2023-10-07 "Initial attacks"; "Russia Ukraine invasion" → Timeline of the 2022 Russian invasion of Ukraine, 40 milestones from 2022-02-24.
+- Not checked in the browser: the dev API on :4000 (under `pnpm dev:all`) stopped during this workstream — most likely when `prisma migrate` regenerated the client under the running process — and needs a restart. The `/story` milestone styling is type-checked and linted only.
+
 ### ADR-008 step 3 — News Search API adapter (off by default) · 2026-10-25
 - Added `ingestion/providers/news-search-api.provider.ts` (`NewsSearchApiProvider`, id `news-api`) in TheNewsAPI's `/v1/news/all` format. No provider is committed to: it stays disabled until `NEWS_API_KEY` is set (`NEWS_API_BASE_URL` overrides the endpoint for a compatible vendor).
 - Records use the shared sha1-of-normalized-URL id (cross-source duplicates collapse); vendor categories map to ours both ways.

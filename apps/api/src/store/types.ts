@@ -14,6 +14,8 @@ export interface ArticleRecord {
   importance: string;
   storyClusterId: string | null;
   tone: number | null;
+  /** "report" (default) or "milestone" (Wikipedia event, ADR-008 step 6). */
+  kind?: string;
 }
 
 export interface BookmarkRecord {

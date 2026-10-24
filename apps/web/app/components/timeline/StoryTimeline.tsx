@@ -80,7 +80,9 @@ export default function StoryTimeline({ query, category }: { query: string; cate
 
   const granularity = useMemo(() => pickGranularity(items), [items]);
   const groups = useMemo(() => groupByPeriod(items, granularity, 'asc'), [items, granularity]);
-  const sources = useMemo(() => new Set(items.map((a) => a.source)).size, [items]);
+  const reports = useMemo(() => items.filter((a) => a.kind !== 'milestone'), [items]);
+  const milestones = items.length - reports.length;
+  const sources = useMemo(() => new Set(reports.map((a) => a.source)).size, [reports]);
   const first = groups[0]?.items[0];
 
   const pinned = isPinnedItem('search', query);
@@ -106,7 +108,9 @@ export default function StoryTimeline({ query, category }: { query: string; cate
     status === 'loading'
       ? 'Tracing the story back to its first report…'
       : first
-        ? `Started ${formatLong(first.publishedAt)} · ${items.length} reports · ${sources} sources`
+        ? `Started ${formatLong(first.publishedAt)} · ${reports.length} reports · ${sources} sources${
+            milestones ? ` · ${milestones} milestones` : ''
+          }`
         : undefined;
 
   return (

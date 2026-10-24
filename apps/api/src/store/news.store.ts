@@ -441,6 +441,7 @@ export class NewsStore {
       importance: a.importance,
       storyClusterId: a.storyClusterId,
       tone: a.tone,
+      kind: a.kind ?? 'report',
     };
   }
 

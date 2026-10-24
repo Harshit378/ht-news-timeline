@@ -45,7 +45,9 @@ export class StoryBriefService {
   /** Starts generation if needed and returns at once; the promise is only for tests. Never rejects. */
   ensure(key: string, query: string, articles: ArticleRecord[]): Promise<void> {
     if (!this.generator.enabled || this.inFlight.has(key)) return this.inFlight.get(key) ?? Promise.resolve();
-    const selected = selectArticles(articles, MAX_STORY_ARTICLES);
+    // Wikipedia milestones are context, not reporting: keep them out of the brief and the comparison.
+    const reports = articles.filter((a) => a.kind !== 'milestone');
+    const selected = selectArticles(reports, MAX_STORY_ARTICLES);
     if (selected.length < MIN_ARTICLES || new Set(selected.map((a) => a.source)).size < MIN_SOURCES) {
       return Promise.resolve();
     }

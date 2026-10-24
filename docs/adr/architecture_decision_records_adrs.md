@@ -211,6 +211,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Rejected alternatives:** *Web crawling* (brittle, paywalls, ToS/legal risk, high ops cost — revisit only for full text from sources that allow it); *Google News RSS search* (not an official API, commercial use unclear); *GDELT-only* (rate limits and 3-month DOC window make the core promise impossible).
 * **Sources (pricing checked Oct 2026):** [TheNewsAPI pricing](https://www.thenewsapi.com/pricing), [GNews pricing & limits](https://apiterms.com/api/gnews.io/), [NewsData.io comparison](https://newsdata.io/blog/news-api-comparison/), [Best news APIs 2026](https://thunderbit.com/blog/best-news-apis-compared).
 * **Step 3 (25 Oct 2026):** adapter built in TheNewsAPI's format, off until `NEWS_API_KEY` is set; daily request quota persisted in `ProviderUsage`, 15-minute query cache. Choosing and paying for a provider is still open.
+* **Step 6 (25 Oct 2026):** Wikipedia "Timeline of …" pages supply dated milestones on story timelines (search-only provider, 24 h cache, stored as `Article.kind = milestone`, CC BY-SA attributed). Remaining: step 3 provider decision, step 5 BigQuery (next).
 
 ---
 

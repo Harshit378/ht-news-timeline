@@ -13,6 +13,7 @@ export function buildComparison(
 ): StoryComparison | null {
   const bySource = new Map<string, FeedArticle[]>();
   for (const a of items) {
+    if (a.kind === 'milestone') continue;
     const list = bySource.get(a.source) ?? [];
     list.push(a);
     bySource.set(a.source, list);

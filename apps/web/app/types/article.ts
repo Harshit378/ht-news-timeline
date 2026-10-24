@@ -64,6 +64,8 @@ export interface FeedArticle {
   bias?: 'left' | 'center' | 'right';
   importance?: 'critical' | 'high' | 'normal' | 'low';
   storyClusterId?: string | null;
+  /** "milestone" = a dated event from Wikipedia on a story timeline (ADR-008 step 6). */
+  kind?: 'report' | 'milestone';
 }
 
 export interface BreakingNewsPayload {

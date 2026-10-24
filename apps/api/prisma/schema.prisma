@@ -25,6 +25,8 @@ model Article {
   tone           Float?
   /// false for articles fetched only for a story timeline: resolvable by id, kept out of feed/trending.
   inFeed         Boolean    @default(true)
+  /// "report" (a news article) or "milestone" (a dated event from Wikipedia, ADR-008 step 6).
+  kind           String     @default("report")
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   bookmarks      Bookmark[]
