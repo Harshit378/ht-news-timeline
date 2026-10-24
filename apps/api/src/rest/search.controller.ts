@@ -7,8 +7,8 @@ export class SearchController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  search(@Query('q') q?: string) {
-    const results = this.store.searchArticles(q ?? '');
+  async search(@Query('q') q?: string) {
+    const results = await this.store.searchArticles(q ?? '');
     return {
       query: q ?? '',
       results: results.map(serializeArticle),

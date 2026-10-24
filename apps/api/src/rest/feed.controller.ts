@@ -7,18 +7,20 @@ export class FeedController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  getFeed(@Query('category') category?: string, @Query('page') page = '1') {
+  async getFeed(@Query('category') category?: string, @Query('page') page = '1') {
     const pageNum = Math.max(1, Number(page) || 1);
     const pageSize = 20;
-    const all = this.store.listArticles(category);
-    const start = (pageNum - 1) * pageSize;
-    const slice = all.slice(start, start + pageSize);
+    // Fetch one extra row to learn whether another page exists without a COUNT.
+    const rows = await this.store.listArticles(category, {
+      skip: (pageNum - 1) * pageSize,
+      take: pageSize + 1,
+    });
     return {
       category: category ?? null,
-      items: slice.map(serializeArticle),
+      items: rows.slice(0, pageSize).map(serializeArticle),
       page: pageNum,
       pageSize,
-      hasMore: start + pageSize < all.length,
+      hasMore: rows.length > pageSize,
     };
   }
 }

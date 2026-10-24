@@ -6,7 +6,7 @@ export class BreakingController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  breaking() {
-    return { active: this.store.breaking() };
+  async breaking() {
+    return { active: await this.store.breaking() };
   }
 }

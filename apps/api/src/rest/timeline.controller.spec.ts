@@ -24,9 +24,11 @@ function rec(id: string, iso: string, headline: string, url: string | null = `ht
   };
 }
 
-function makeStore(local: ArticleRecord[] = []) {
+function makeStore(local: ArticleRecord[] = [], stored: { lastFetchedAt: Date; items: ArticleRecord[] } | null = null) {
   return {
-    searchArticles: vi.fn(() => local),
+    searchArticles: vi.fn(async () => local),
+    getStory: vi.fn(async () => stored),
+    saveStory: vi.fn(async (_k: string, _q: string, _c: string | undefined, records: ArticleRecord[]) => records),
     rememberStoryArticles: vi.fn(),
   };
 }
@@ -66,7 +68,8 @@ describe('TimelineController', () => {
     expect(res.firstSeen).toBe('2026-08-01T00:00:00.000Z');
     expect(res.lastSeen).toBe('2026-10-20T00:00:00.000Z');
     expect(res.degraded).toBe(false);
-    expect(store.rememberStoryArticles).toHaveBeenCalledTimes(1);
+    expect(store.saveStory).toHaveBeenCalledTimes(1);
+    expect(store.saveStory.mock.calls[0][0]).toBe('election results|');
 
     await ctrl.timeline('election results', undefined);
     expect(gdelt.searchStory).toHaveBeenCalledTimes(1); // second call served from cache
@@ -91,6 +94,7 @@ describe('TimelineController', () => {
     const ctrl = new TimelineController(makeStore() as never, gdelt as never);
     const p1 = ctrl.timeline('mars mission', undefined);
     const p2 = ctrl.timeline('Mars mission', undefined);
+    await new Promise((r) => setTimeout(r, 0)); // let both stored-story lookups settle
     release();
     await Promise.all([p1, p2]);
     expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
@@ -114,6 +118,38 @@ describe('TimelineController', () => {
     expect(second.degraded).toBe(false);
     expect(second.items.map((i) => i.id)).toEqual(['g1']);
     expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a fresh stored story without calling GDELT', async () => {
+    const gdelt = { searchStory: vi.fn() };
+    const store = makeStore([], { lastFetchedAt: new Date(), items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
+    const ctrl = new TimelineController(store as never, gdelt as never);
+    const res = await ctrl.timeline('persisted story', undefined);
+    expect(res.items.map((i) => i.id)).toEqual(['p1']);
+    expect(res.degraded).toBe(false);
+    expect(gdelt.searchStory).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a stale stored story when GDELT fails', async () => {
+    const gdelt = { searchStory: vi.fn(async () => Promise.reject(new Error('429'))) };
+    const stale = new Date(Date.now() - 60 * 60 * 1000);
+    const store = makeStore([], { lastFetchedAt: stale, items: [rec('p1', '2026-07-01T00:00:00Z', 'Persisted')] });
+    const ctrl = new TimelineController(store as never, gdelt as never);
+    const res = await ctrl.timeline('persisted story', undefined);
+    expect(gdelt.searchStory).toHaveBeenCalledTimes(1);
+    expect(res.items.map((i) => i.id)).toEqual(['p1']);
+    expect(res.degraded).toBe(true);
+  });
+
+  it('still answers when persisting the story fails', async () => {
+    const gdelt = { searchStory: vi.fn(async () => [rec('g1', '2026-08-01T00:00:00Z', 'x')]) };
+    const store = makeStore();
+    store.saveStory.mockRejectedValueOnce(new Error('db down'));
+    const ctrl = new TimelineController(store as never, gdelt as never);
+    const res = await ctrl.timeline('db outage', undefined);
+    expect(res.items.map((i) => i.id)).toEqual(['g1']);
+    expect(res.degraded).toBe(false);
+    expect(store.rememberStoryArticles).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an empty query', async () => {

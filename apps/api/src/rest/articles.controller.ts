@@ -7,8 +7,8 @@ export class ArticlesController {
   constructor(private readonly store: NewsStore) {}
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    const article = this.store.getArticle(id);
+  async findOne(@Param('id') id: string) {
+    const article = await this.store.getArticle(id);
     if (!article) throw new NotFoundException();
     return serializeArticle(article);
   }

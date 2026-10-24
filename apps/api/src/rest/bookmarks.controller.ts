@@ -6,8 +6,8 @@ export class BookmarksController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  findAll(@Query('userId') userId?: string) {
-    return { items: this.store.listBookmarks(userId ?? 'local') };
+  async findAll(@Query('userId') userId?: string) {
+    return { items: await this.store.listBookmarks(userId ?? 'local') };
   }
 
   @Put()
@@ -18,7 +18,7 @@ export class BookmarksController {
   @Post()
   async create(@Body() body: { articleId: string; userId?: string }) {
     const userId = body.userId ?? 'local';
-    const current = this.store.listBookmarks(userId).map((b) => b.articleId);
+    const current = (await this.store.listBookmarks(userId)).map((b) => b.articleId);
     if (!current.includes(body.articleId)) current.push(body.articleId);
     return this.store.putBookmarks(current, userId);
   }
@@ -26,7 +26,7 @@ export class BookmarksController {
   @Delete(':articleId')
   async remove(@Param('articleId') articleId: string, @Query('userId') userId?: string) {
     const uid = userId ?? 'local';
-    const current = this.store.listBookmarks(uid)
+    const current = (await this.store.listBookmarks(uid))
       .map((b) => b.articleId)
       .filter((id) => id !== articleId);
     return this.store.putBookmarks(current, uid);

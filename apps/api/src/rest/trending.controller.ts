@@ -6,7 +6,7 @@ export class TrendingController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  trending() {
-    return { topics: this.store.trendingTopics() };
+  async trending() {
+    return { topics: await this.store.trendingTopics() };
   }
 }

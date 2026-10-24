@@ -44,7 +44,8 @@ export function dedupeChronological(records: ArticleRecord[]): ArticleRecord[] {
 
 /**
  * GET /api/timeline?q=&category= — a story from its first report to now, oldest first.
- * GDELT results are cached per query for 15 min to stay within GDELT's rate limit.
+ * GDELT results are cached per query for 15 min to stay within GDELT's rate limit, and persisted
+ * as a Story in postgres so repeat searches survive restarts and outages.
  */
 @Controller('timeline')
 export class TimelineController {
@@ -66,7 +67,7 @@ export class TimelineController {
 
     const key = `${sanitizeStoryQuery(query).toLowerCase()}|${category ?? ''}`;
     const { items: remote, degraded } = await this.fetchCached(key, query, category);
-    const items = dedupeChronological([...remote, ...this.store.searchArticles(query)]);
+    const items = dedupeChronological([...remote, ...(await this.store.searchArticles(query))]);
 
     return {
       query,
@@ -79,7 +80,11 @@ export class TimelineController {
   }
 
   private async fetchCached(key: string, query: string, category?: string) {
-    const hit = this.cache.get(key);
+    let hit = this.cache.get(key);
+    if (!hit) {
+      const stored = await this.store.getStory(key);
+      if (stored) hit = { at: stored.lastFetchedAt.getTime(), items: stored.items };
+    }
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
       this.logger.log(`timeline cache hit "${query}" (${hit.items.length})`);
       return { items: hit.items, degraded: false };
@@ -89,11 +94,17 @@ export class TimelineController {
     if (!pending) {
       pending = this.gdelt
         .searchStory(query, category || undefined)
-        .then((records) => {
-          this.store.rememberStoryArticles(records);
-          this.remember(key, records);
+        .then(async (records) => {
+          let items = records;
+          try {
+            items = await this.store.saveStory(key, query, category, records);
+          } catch (err) {
+            this.logger.warn(`timeline "${query}" not persisted: ${err instanceof Error ? err.message : err}`);
+            this.store.rememberStoryArticles(records);
+          }
+          this.remember(key, items);
           this.logger.log(`timeline GDELT "${query}" → ${records.length} articles`);
-          return { items: records, degraded: false };
+          return { items, degraded: false };
         })
         .catch((err) => {
           this.logger.warn(`timeline GDELT "${query}" failed: ${err instanceof Error ? err.message : err}`);

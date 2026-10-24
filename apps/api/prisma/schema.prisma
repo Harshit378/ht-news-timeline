@@ -14,7 +14,7 @@ model Article {
   body           String?
   source         String
   sourceDomain   String?
-  url            String?
+  url            String?    @unique
   category       String
   publishedAt    DateTime
   imageUrl       String?
@@ -23,11 +23,40 @@ model Article {
   importance     String     @default("normal")
   storyClusterId String?
   tone           Float?
+  /// false for articles fetched only for a story timeline: resolvable by id, kept out of feed/trending.
+  inFeed         Boolean    @default(true)
   createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   bookmarks      Bookmark[]
+  stories        StoryArticle[]
 
   @@index([category, publishedAt(sort: Desc)])
+  @@index([inFeed, publishedAt(sort: Desc)])
   @@index([storyClusterId])
+}
+
+/// A searched story (GET /api/timeline?q=), keyed by sanitized query + category.
+model Story {
+  id            String         @id @default(cuid())
+  key           String         @unique
+  query         String
+  category      String?
+  firstSeen     DateTime?
+  lastSeen      DateTime?
+  lastFetchedAt DateTime
+  createdAt     DateTime       @default(now())
+  articles      StoryArticle[]
+}
+
+model StoryArticle {
+  storyId   String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@id([storyId, articleId])
+  @@index([articleId])
 }
 
 model Bookmark {
@@ -61,6 +90,8 @@ model EventUpdate {
   message    String
   importance String    @default("normal")
   sources    String[]  @default([])
+
+  @@index([eventId, timestamp(sort: Desc)])
 }
 
 model TopicSummary {

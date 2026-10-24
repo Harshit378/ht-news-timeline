@@ -16,7 +16,7 @@ export class SummariesService {
   }
 
   async generate(topicName: string) {
-    const articles = this.store.listArticles(topicName).slice(0, 12);
+    const articles = await this.store.listArticles(topicName, { take: 12 });
     const headlines = articles.map((a) => `${a.source}: ${a.headline}`);
     const sentiments = articles.map((a) => a.sentiment);
     const positive = sentiments.filter((s) => s === 'positive').length;
@@ -46,7 +46,7 @@ export class SummariesService {
   }
 
   async generateAll() {
-    const topics = [...new Set(this.store.listArticles().map((a) => a.category))];
+    const topics = await this.store.listCategories();
     const out = [];
     for (const topic of topics) {
       out.push(await this.generate(topic));

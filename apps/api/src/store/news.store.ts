@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   ArticleRecord,
   BookmarkRecord,
+  EventUpdateRecord,
   LiveEventRecord,
   RssFeedRecord,
   TopicSummaryRecord,
@@ -28,30 +29,55 @@ export class NewsStore {
       this.seedLiveEvents();
       return;
     }
-    const [articles, bookmarks, summaries, feeds, events] = await Promise.all([
-      this.prisma.article.findMany(),
-      this.prisma.bookmark.findMany(),
+    // Articles and bookmarks are queried on demand; only the small tables are cached in memory.
+    const [summaries, feeds, events] = await Promise.all([
       this.prisma.topicSummary.findMany(),
       this.prisma.rssFeed.findMany(),
-      this.prisma.liveEvent.findMany({ include: { updates: true } }),
+      this.prisma.liveEvent.findMany({ include: { updates: { orderBy: { timestamp: 'desc' } } } }),
     ]);
-    for (const a of articles) this.articles.set(a.id, this.mapArticle(a));
-    for (const b of bookmarks) this.bookmarks.set(this.bookmarkKey(b.userId, b.articleId), b);
     for (const s of summaries) this.summaries.set(s.topicName.toLowerCase(), s);
     for (const f of feeds) this.feeds.set(f.id, f);
     for (const e of events) this.events.set(e.id, e);
-    if (this.events.size === 0) this.seedLiveEvents();
+    if (this.events.size === 0) {
+      this.seedLiveEvents();
+      await this.persistSeedEvents();
+    }
   }
 
-  listArticles(category?: string) {
-    const items = [...this.articles.values()].sort(
-      (a, b) => b.publishedAt.getTime() - a.publishedAt.getTime(),
-    );
-    if (!category || category === 'all') return items;
-    return items.filter((a) => a.category === category);
+  async listArticles(category?: string, { skip = 0, take = 200 }: { skip?: number; take?: number } = {}) {
+    const filter = category && category !== 'all' ? category : undefined;
+    if (this.dbReady) {
+      const rows = await this.prisma.article.findMany({
+        where: { inFeed: true, ...(filter && { category: filter }) },
+        orderBy: { publishedAt: 'desc' },
+        skip,
+        take,
+      });
+      return rows.map((a) => this.mapArticle(a));
+    }
+    const items = [...this.articles.values()]
+      .filter((a) => !filter || a.category === filter)
+      .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+    return items.slice(skip, skip + take);
   }
 
-  getArticle(id: string) {
+  async listCategories() {
+    if (this.dbReady) {
+      const rows = await this.prisma.article.findMany({
+        where: { inFeed: true },
+        distinct: ['category'],
+        select: { category: true },
+      });
+      return rows.map((r) => r.category);
+    }
+    return [...new Set([...this.articles.values()].map((a) => a.category))];
+  }
+
+  async getArticle(id: string) {
+    if (this.dbReady) {
+      const row = await this.prisma.article.findUnique({ where: { id } });
+      return row ? this.mapArticle(row) : null;
+    }
     return this.articles.get(id) ?? this.storyArticles.get(id) ?? null;
   }
 
@@ -67,29 +93,63 @@ export class NewsStore {
     }
   }
 
-  searchArticles(q: string) {
-    const needle = q.trim().toLowerCase();
+  /** In postgres mode this also matches story-only articles: the stored archive is searchable. */
+  async searchArticles(q: string, take = 200) {
+    const needle = q.trim();
     if (!needle) return [];
-    return this.listArticles().filter((a) =>
-      `${a.headline} ${a.excerpt} ${a.source}`.toLowerCase().includes(needle),
-    );
+    if (this.dbReady) {
+      const rows = await this.prisma.article.findMany({
+        where: {
+          OR: [
+            { headline: { contains: needle, mode: 'insensitive' } },
+            { excerpt: { contains: needle, mode: 'insensitive' } },
+            { source: { contains: needle, mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { publishedAt: 'desc' },
+        take,
+      });
+      return rows.map((a) => this.mapArticle(a));
+    }
+    const lower = needle.toLowerCase();
+    return (await this.listArticles(undefined, { take: Number.MAX_SAFE_INTEGER }))
+      .filter((a) => `${a.headline} ${a.excerpt} ${a.source}`.toLowerCase().includes(lower))
+      .slice(0, take);
   }
 
-  trendingTopics() {
-    const counts = new Map<string, number>();
-    for (const a of this.articles.values()) {
-      counts.set(a.category, (counts.get(a.category) ?? 0) + 1);
+  async trendingTopics() {
+    let counts: [string, number][];
+    if (this.dbReady) {
+      const rows = await this.prisma.article.groupBy({
+        by: ['category'],
+        where: { inFeed: true },
+        _count: { _all: true },
+      });
+      counts = rows.map((r) => [r.category, r._count._all]);
+    } else {
+      const map = new Map<string, number>();
+      for (const a of this.articles.values()) map.set(a.category, (map.get(a.category) ?? 0) + 1);
+      counts = [...map.entries()];
     }
-    return [...counts.entries()]
+    return counts
       .sort((a, b) => b[1] - a[1])
       .slice(0, 9)
       .map(([topic, count], i) => ({ rank: i + 1, topic, count }));
   }
 
-  breaking() {
-    const critical = this.listArticles().find(
-      (a) => a.importance === 'critical' || a.importance === 'high',
-    );
+  async breaking() {
+    let critical: ArticleRecord | undefined;
+    if (this.dbReady) {
+      const row = await this.prisma.article.findFirst({
+        where: { inFeed: true, importance: { in: ['critical', 'high'] } },
+        orderBy: { publishedAt: 'desc' },
+      });
+      critical = row ? this.mapArticle(row) : undefined;
+    } else {
+      critical = (await this.listArticles(undefined, { take: Number.MAX_SAFE_INTEGER })).find(
+        (a) => a.importance === 'critical' || a.importance === 'high',
+      );
+    }
     if (!critical) return null;
     return {
       articleId: critical.id,
@@ -99,65 +159,125 @@ export class NewsStore {
   }
 
   async upsertArticles(records: ArticleRecord[]) {
-    for (const record of records) {
-      this.articles.set(record.id, record);
+    if (!this.dbReady) {
+      for (const record of records) this.articles.set(record.id, record);
+      return;
     }
-    if (!this.dbReady) return;
-    await this.prisma.article.createMany({
-      data: records.map((r) => ({
-        id: r.id,
-        headline: r.headline,
-        excerpt: r.excerpt,
-        body: r.body,
-        source: r.source,
-        sourceDomain: r.sourceDomain,
-        url: r.url,
-        category: r.category,
-        publishedAt: r.publishedAt,
-        imageUrl: r.imageUrl,
-        sentiment: r.sentiment,
-        bias: r.bias,
-        importance: r.importance,
-        storyClusterId: r.storyClusterId,
-        tone: r.tone,
-      })),
-      skipDuplicates: true,
-    });
+    await this.persistArticles(records, true);
   }
 
-  listBookmarks(userId = 'local') {
+  /**
+   * Inserts new articles and returns them as stored: a record whose URL already exists under
+   * another id resolves to the stored row. Feed ingestion promotes story-only rows into the feed.
+   */
+  private async persistArticles(records: ArticleRecord[], inFeed: boolean): Promise<ArticleRecord[]> {
+    if (records.length === 0) return [];
+    await this.prisma.article.createMany({
+      data: records.map((r) => ({ ...this.mapArticle(r), inFeed })),
+      skipDuplicates: true,
+    });
+    const urls = records.map((r) => r.url).filter((u): u is string => !!u);
+    const stored = await this.prisma.article.findMany({
+      where: { OR: [{ id: { in: records.map((r) => r.id) } }, { url: { in: urls } }] },
+    });
+    const byId = new Map(stored.map((a) => [a.id, a]));
+    const byUrl = new Map(stored.filter((a) => a.url).map((a) => [a.url as string, a]));
+    if (inFeed) {
+      const promote = stored.filter((a) => !a.inFeed).map((a) => a.id);
+      if (promote.length) {
+        await this.prisma.article.updateMany({ where: { id: { in: promote } }, data: { inFeed: true } });
+      }
+    }
+    const out = new Map<string, ArticleRecord>();
+    for (const r of records) {
+      const row = byId.get(r.id) ?? (r.url ? byUrl.get(r.url) : undefined);
+      if (row) out.set(row.id, this.mapArticle(row));
+    }
+    return [...out.values()];
+  }
+
+  /** Stored story for a timeline key (`<sanitized query>|<category>`), oldest article first. */
+  async getStory(key: string) {
+    if (!this.dbReady) return null;
+    const story = await this.prisma.story.findUnique({
+      where: { key },
+      include: {
+        articles: { include: { article: true }, orderBy: { article: { publishedAt: 'asc' } }, take: 1000 },
+      },
+    });
+    if (!story) return null;
+    return {
+      lastFetchedAt: story.lastFetchedAt,
+      items: story.articles.map((sa) => this.mapArticle(sa.article)),
+    };
+  }
+
+  /** Persists a fetched story timeline and returns its articles as stored (canonical ids). */
+  async saveStory(key: string, query: string, category: string | undefined, records: ArticleRecord[]) {
+    if (!this.dbReady) {
+      this.rememberStoryArticles(records);
+      return records;
+    }
+    const saved = await this.persistArticles(records, false);
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const story = await tx.story.upsert({
+        where: { key },
+        create: { key, query, category: category || null, lastFetchedAt: now },
+        update: { query, lastFetchedAt: now },
+      });
+      await tx.storyArticle.createMany({
+        data: saved.map((a) => ({ storyId: story.id, articleId: a.id })),
+        skipDuplicates: true,
+      });
+      const span = await tx.article.aggregate({
+        where: { stories: { some: { storyId: story.id } } },
+        _min: { publishedAt: true },
+        _max: { publishedAt: true },
+      });
+      await tx.story.update({
+        where: { id: story.id },
+        data: { firstSeen: span._min.publishedAt, lastSeen: span._max.publishedAt },
+      });
+    });
+    return saved;
+  }
+
+  async stats() {
+    if (!this.dbReady) return null;
+    const [articles, stories] = await Promise.all([this.prisma.article.count(), this.prisma.story.count()]);
+    return { articles, stories };
+  }
+
+  async listBookmarks(userId = 'local'): Promise<BookmarkRecord[]> {
+    if (this.dbReady) return this.prisma.bookmark.findMany({ where: { userId } });
     return [...this.bookmarks.values()].filter((b) => b.userId === userId);
   }
 
   async putBookmarks(articleIds: string[], userId = 'local') {
-    const wanted = new Set(articleIds);
-    for (const [key, b] of [...this.bookmarks.entries()]) {
-      if (b.userId === userId && !wanted.has(b.articleId)) this.bookmarks.delete(key);
-    }
-    for (const articleId of articleIds) {
-      const key = this.bookmarkKey(userId, articleId);
-      this.bookmarks.set(key, {
-        id: key,
-        userId,
-        articleId,
-        createdAt: new Date(),
-      });
-    }
-    if (!this.dbReady) return { ok: true, articleIds };
-    await this.prisma.$transaction(async (tx) => {
-      await tx.bookmark.deleteMany({
-        where: { userId, articleId: { notIn: articleIds } },
-      });
-      for (const articleId of articleIds) {
-        if (!this.articles.has(articleId)) continue;
-        await tx.bookmark.upsert({
-          where: { userId_articleId: { userId, articleId } },
-          create: { userId, articleId },
-          update: {},
-        });
+    if (!this.dbReady) {
+      const wanted = new Set(articleIds);
+      for (const [key, b] of [...this.bookmarks.entries()]) {
+        if (b.userId === userId && !wanted.has(b.articleId)) this.bookmarks.delete(key);
       }
+      for (const articleId of articleIds) {
+        const key = this.bookmarkKey(userId, articleId);
+        this.bookmarks.set(key, { id: key, userId, articleId, createdAt: new Date() });
+      }
+      return { ok: true, articleIds, missing: [] as string[] };
+    }
+    // Feed and story articles are both stored, so only ids we have never seen are skipped.
+    const missing = await this.prisma.$transaction(async (tx) => {
+      const known = await tx.article.findMany({ where: { id: { in: articleIds } }, select: { id: true } });
+      const knownIds = new Set(known.map((a) => a.id));
+      await tx.bookmark.deleteMany({ where: { userId, articleId: { notIn: articleIds } } });
+      await tx.bookmark.createMany({
+        data: articleIds.filter((id) => knownIds.has(id)).map((articleId) => ({ userId, articleId })),
+        skipDuplicates: true,
+      });
+      return articleIds.filter((id) => !knownIds.has(id));
     });
-    return { ok: true, articleIds };
+    return { ok: true, articleIds, missing };
   }
 
   getSummary(topicName: string) {
@@ -243,22 +363,19 @@ export class NewsStore {
   async addEventUpdate(eventId: string, message: string, importance = 'normal') {
     const event = this.events.get(eventId);
     if (!event) return null;
-    const update = {
-      id: `upd-${Date.now()}`,
-      eventId,
-      timestamp: new Date(),
-      message,
-      importance,
-      sources: [] as string[],
-    };
+    const update: EventUpdateRecord = this.dbReady
+      ? await this.prisma.eventUpdate.create({ data: { eventId, message, importance, sources: [] } })
+      : {
+          id: `upd-${Date.now()}`,
+          eventId,
+          timestamp: new Date(),
+          message,
+          importance,
+          sources: [],
+        };
     event.updates = [update, ...(event.updates ?? [])];
     event.lastUpdated = new Date();
     this.events.set(eventId, event);
-    if (this.dbReady) {
-      await this.prisma.eventUpdate.create({
-        data: { eventId, message, importance, sources: [] },
-      });
-    }
     return { event, update };
   }
 
@@ -266,24 +383,50 @@ export class NewsStore {
     return `${userId}:${articleId}`;
   }
 
-  private mapArticle(a: {
-    id: string;
-    headline: string;
-    excerpt: string;
-    body: string | null;
-    source: string;
-    sourceDomain: string | null;
-    url: string | null;
-    category: string;
-    publishedAt: Date;
-    imageUrl: string | null;
-    sentiment: string | null;
-    bias: string | null;
-    importance: string;
-    storyClusterId: string | null;
-    tone: number | null;
-  }): ArticleRecord {
-    return { ...a };
+  private mapArticle(a: ArticleRecord): ArticleRecord {
+    return {
+      id: a.id,
+      headline: a.headline,
+      excerpt: a.excerpt,
+      body: a.body,
+      source: a.source,
+      sourceDomain: a.sourceDomain,
+      url: a.url,
+      category: a.category,
+      publishedAt: a.publishedAt,
+      imageUrl: a.imageUrl,
+      sentiment: a.sentiment,
+      bias: a.bias,
+      importance: a.importance,
+      storyClusterId: a.storyClusterId,
+      tone: a.tone,
+    };
+  }
+
+  private async persistSeedEvents() {
+    for (const e of this.events.values()) {
+      await this.prisma.liveEvent.create({
+        data: {
+          id: e.id,
+          name: e.name,
+          slug: e.slug,
+          description: e.description,
+          category: e.category,
+          status: e.status,
+          startDate: e.startDate,
+          endDate: e.endDate,
+          updates: {
+            create: (e.updates ?? []).map((u) => ({
+              id: u.id,
+              timestamp: u.timestamp,
+              message: u.message,
+              importance: u.importance,
+              sources: u.sources,
+            })),
+          },
+        },
+      });
+    }
   }
 
   private seedLiveEvents() {

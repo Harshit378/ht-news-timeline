@@ -16,7 +16,13 @@
     "mobile:sync": "nx run web:cap-sync",
     "mobile:ios": "nx run web:cap-ios",
     "mobile:android": "nx run web:cap-android",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema apps/api/prisma/schema.prisma",
+    "db:status": "prisma migrate status --schema apps/api/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema apps/api/prisma/schema.prisma"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

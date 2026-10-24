@@ -20,8 +20,8 @@ export class TopicsController {
   constructor(private readonly store: NewsStore) {}
 
   @Get()
-  list() {
-    const counts = new Map(this.store.trendingTopics().map((t) => [t.topic, t.count]));
+  async list() {
+    const counts = new Map((await this.store.trendingTopics()).map((t) => [t.topic, t.count]));
     return {
       topics: TOPICS.map((t) => ({
         ...t,
@@ -31,8 +31,8 @@ export class TopicsController {
   }
 
   @Get(':slug/feed')
-  topicFeed(@Param('slug') slug: string) {
-    const items = this.store.listArticles(slug);
+  async topicFeed(@Param('slug') slug: string) {
+    const items = await this.store.listArticles(slug);
     return {
       slug,
       items: items.map(serializeArticle),
