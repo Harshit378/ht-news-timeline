@@ -81,6 +81,50 @@
         "command": "npx cap open android",
         "cwd": "apps/web"
       }
+    },
+    "native-version": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node scripts/sync-native-version.mjs"
+      }
+    },
+    "release-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node scripts/check-release-env.mjs"
+      }
+    },
+    "android-release": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "release-check",
+        "native-version",
+        "build"
+      ],
+      "options": {
+        "commands": [
+          "npx cap sync android",
+          "cd android && ./gradlew bundleRelease"
+        ],
+        "parallel": false,
+        "cwd": "apps/web"
+      }
+    },
+    "ios-archive": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "release-check",
+        "native-version",
+        "build"
+      ],
+      "options": {
+        "commands": [
+          "npx cap sync ios",
+          "xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -destination 'generic/platform=iOS' -archivePath ../../dist/ios/App.xcarchive archive"
+        ],
+        "parallel": false,
+        "cwd": "apps/web"
+      }
     }
   }
 }

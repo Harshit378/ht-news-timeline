@@ -11,9 +11,12 @@ import {
 } from '@/app/features/rss-feeds/rssService';
 import type { RSSFeed } from '@/app/features/rss-feeds/types';
 import { useTheme, type ThemePreference } from '@/app/contexts/ThemeContext';
-import { API_BASE_URL } from '@/app/lib/api-client';
+import { API_BASE_URL, createCheckoutSession } from '@/app/lib/api-client';
 import { APP_NAME, APP_VERSION } from '@/app/lib/app-info';
 import { clearRecentSearches } from '@/app/lib/recent-searches';
+import { useFeed } from '@/app/contexts/FeedContext';
+import { REGIONS, regionFromLocale } from '@/app/lib/region';
+import { useHydrated } from '@/app/hooks/useHydrated';
 
 const THEMES: { id: ThemePreference; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -32,6 +35,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function SettingsPage() {
   const { preference, setPreference } = useTheme();
+  const { regionSetting, region, setRegionSetting } = useFeed();
+  const hydrated = useHydrated();
+  const detected = hydrated ? regionFromLocale(navigator.language) : null;
+  const detectedLabel = REGIONS.find((r) => r.code === detected)?.label ?? detected;
+  const regionOptions = [
+    { id: 'auto', label: detectedLabel ? `Automatic (${detectedLabel})` : 'Automatic' },
+    ...REGIONS.map((r) => ({ id: r.code as string, label: r.label })),
+    { id: 'off', label: 'No preference' },
+  ];
   const [feeds, setFeeds] = useState<RSSFeed[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(true);
   const [feedsError, setFeedsError] = useState<string | null>(null);
@@ -74,6 +86,83 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </Section>
+
+        <Section title="Subscription & Plan">
+          <div className="rounded-[10px] border border-border bg-surface-alt p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <span className="font-serif text-base font-bold text-ink">Free Reader</span>
+                <p className="text-xs text-muted">Chronological timelines with sponsored cards</p>
+              </div>
+              <span className="rounded border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+                Current
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const session = await createCheckoutSession('PRO');
+                    if (session.url) window.location.href = session.url;
+                  } catch {
+                    // graceful fallback
+                  }
+                }}
+                className="flex flex-col items-center justify-center rounded-lg border border-accent/40 bg-accent/10 p-3 text-center transition-colors active:bg-accent/20"
+              >
+                <span className="font-serif text-sm font-bold text-accent">Upgrade to Pro</span>
+                <span className="font-mono text-[11px] text-muted">$9 / mo</span>
+                <span className="mt-1 text-[10px] text-muted">Ad-free · Cloud sync</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const session = await createCheckoutSession('TEAM');
+                    if (session.url) window.location.href = session.url;
+                  } catch {
+                    // graceful fallback
+                  }
+                }}
+                className="flex flex-col items-center justify-center rounded-lg border border-gold/40 bg-gold/10 p-3 text-center transition-colors active:bg-gold/20"
+              >
+                <span className="font-serif text-sm font-bold text-gold">Newsroom Team</span>
+                <span className="font-mono text-[11px] text-muted">$29 / mo</span>
+                <span className="mt-1 text-[10px] text-muted">Live alerts · Team seats</span>
+              </button>
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Region">
+          <p className="mb-3 text-sm text-muted">
+            News from your region ranks higher in the feed. Nothing is hidden, and your location never leaves this
+            device.
+          </p>
+          <div className="divide-y divide-border rounded-[10px] border border-border" role="radiogroup" aria-label="Region">
+            {regionOptions.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={regionSetting === id}
+                onClick={() => setRegionSetting(id)}
+                className="flex min-h-[48px] w-full items-center justify-between px-4 text-left text-sm text-ink active:bg-surface"
+              >
+                {label}
+                {regionSetting === id && <span className="h-2.5 w-2.5 rounded-full bg-accent" aria-hidden />}
+              </button>
+            ))}
+          </div>
+          {hydrated && (
+            <p className="mt-2 font-mono text-[11px] text-muted">
+              {region ? `Boosting ${REGIONS.find((r) => r.code === region)?.label ?? region}` : 'No regional boost'}
+            </p>
+          )}
         </Section>
 
         <Section title="Custom RSS feeds">

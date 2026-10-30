@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { createHash } from 'crypto';
+import { regionFromGdeltCountry } from '../store/region';
 import { ArticleRecord } from '../store/types';
 
 const CATEGORY_QUERIES: { slug: string; query: string }[] = [
@@ -270,6 +271,7 @@ export class GdeltDocService {
       importance: importanceFromTone(Number.isFinite(tone) ? tone : 0),
       storyClusterId: `${category}-${publishedAt.toISOString().slice(0, 10)}`,
       tone: Number.isFinite(tone) ? tone : null,
+      region: regionFromGdeltCountry(a.sourcecountry),
     };
   }
 

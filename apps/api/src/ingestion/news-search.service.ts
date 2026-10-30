@@ -18,7 +18,7 @@ export class NewsSearchService {
    * Throws only when every provider failed.
    */
   async search(query: string, category?: string): Promise<{ items: ArticleRecord[]; degraded: boolean }> {
-    const searchable = this.providers.filter((p) => p.search);
+    const searchable = this.providers.filter((p) => p.search && p.enabled !== false);
     const results = await Promise.allSettled(
       searchable.map((p) => this.withTimeout(p.search!(query, { category }), p.id)),
     );

@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./apps/web/*"]
+      "@/*": ["./apps/web/*"],
+      "@ht/shared/*": ["./libs/shared/src/*"]
     }
   },
   "include": [

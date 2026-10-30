@@ -16,6 +16,7 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 | **ADR-006** | Offline-First Reading & Background Bookmark Sync Architecture | Accepted | Oct 2026 |
 | **ADR-007** | Tiered Freemium & B2B Team Subscription Monetization Architecture | Proposed | Oct 2026 |
 | **ADR-008** | Multi-Source News Ingestion: Search API + RSS Archive + GDELT History (amends ADR-003) | Proposed | Oct 2026 |
+| **ADR-009** | Region-Aware Feed Selection (extends ADR-008) | Accepted | Oct 2026 |
 
 ---
 
@@ -31,6 +32,8 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Eliminates multi-column responsive layout overhead; ensures consistent UX across mobile web, PWA home-screen installs, and native iOS/Android binaries.
   * **Negative:** Requires replacing desktop keyboard-first patterns (e.g., `⌘K` search modal and hover tooltips) with touch-first interactions (swipeable filter chips and long-press bookmark actions).
+* **Path A release readiness (25 Oct 2026):** icons/splash generated for both platforms, version sync from `apps/web/package.json`, a release guard that refuses dev API URLs, `android-release` / `ios-archive` Nx targets with env-based Android signing, and `docs/native-release.md`. Actual store builds need JDK 21 and Xcode, which this development machine lacks.
+* **Path B started (25 Oct 2026):** `apps/mobile` (Expo SDK 58, Expo Router) with Home, Search/Story, Article and Saved, sharing `libs/shared` with the web app (types, API client, bookmark sync, live-event logic, grouping). Styling is `StyleSheet` with the web tokens until NativeWind supports SDK 58. Live/Topics/Settings, fonts and EAS store builds are the next Path B steps.
 
 ---
 
@@ -86,6 +89,8 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Inputs:** headline, source, date and an excerpt of at most 300 chars, up to 20 reports per story and 12 per topic, round-robin across sources. Report text is treated as untrusted and delimited.
   * **Fallbacks:** if the LLM is down or disabled, topic summaries use the headline heuristic and story briefs are omitted (the UI hides the panel).
   * **Cost when moving to a cloud model:** about 20 reports × ~100 tokens ≈ 2–3k input tokens + ~300 output tokens per brief. Briefs are cached and regenerated only when coverage changes.
+* **Cloud provider (25 Oct 2026):** `LLM_PROVIDER=anthropic` uses Claude Haiku 5.5 through the Anthropic SDK with structured outputs (`output_config.format`), effort `low`. A global `LLM_DAILY_TOKEN_LIMIT` (default 2M tokens/day) caps spend until per-user quotas exist (ADR-007). At ~2.5k input + ~0.3k output tokens per brief, that is roughly 700 briefs a day; at Haiku 5.5's $0.10 / $0.50 per MTok it is about $0.35/day at the cap.
+* **Source comparison (25 Oct 2026):** for stories with ≥ 3 sources the brief call also returns shared themes and per-source differences (validated against the real source names), stored with the brief and shown under it on `/story`. Remaining for ADR-004: per-user quotas (needs ADR-007).
 
 ---
 
@@ -100,6 +105,15 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Prevents thundering-herd server overload during network blips while delivering sub-second breaking news dots and live timeline updates.
   * **Negative:** Stateful WebSocket connections require sticky sessions or a Redis adapter when horizontally scaling NestJS instances.
+* **Implementation notes (24 Oct 2026):**
+  * **Client:** `useWebSocket` retries with capped exponential backoff (`backoff.ts`: 1 → 2 → 4 → 8 → 16 s, ±20% jitter, max 30 s) for 5 attempts, then shows *Offline* with a Retry button. The `online` event and the tab becoming visible start a fresh retry budget. Unmounting no longer triggers a reconnect.
+  * **Data:** `LiveEventsContext` loads `GET /api/events` (web types now mirror the API: one timeline with `updates[]`) and **refetches on every (re)connect**, so updates missed while offline are filled in. Pushed updates are deduped by id. The socket is open only while `/live` is mounted.
+  * **Fallback:** the last good list is cached in `localStorage` (`ht_timeline_live_v1`) and shown when the API is unreachable.
+  * **Socket URL:** `NEXT_PUBLIC_WS_URL`, or derived from `NEXT_PUBLIC_API_URL` (`http://host:4000/api` → `ws://host:4000/ws/events`).
+  * **Gateway:** 30 s ping/pong heartbeat drops half-open sockets; browser connections whose `Origin` fails the CORS policy (`isAllowedOrigin`) are closed with 1008.
+  * **Posting:** `POST /api/events` requires `Authorization: Bearer $EVENTS_ADMIN_TOKEN`. Without a token it is open in development and returns 403 in production. Body is validated (message 1–1000 chars, importance in the allowed set).
+  * **Scaling:** see the scale-out note below.
+* **Scale-out (25 Oct 2026):** updates go through an `EventBus`. With `REDIS_URL` set, Redis pub/sub fans each update out to every API instance, so no sticky sessions are needed for delivery (a client still reconnects to any instance and resyncs via `GET /api/events`). Without it the bus is in-memory (single instance).
 
 ---
 
@@ -116,6 +130,20 @@ This document contains the complete suite of Architecture Decision Records (ADRs
 * **Consequences:**
   * **Positive:** Enables uninterrupted offline reading and zero-data-loss bookmarking while supporting native home-screen installation (`manifest.json`).
   * **Negative:** Requires rigorous cache-version cleanup logic in `sw.js` (checking every 60 seconds) to prevent stale UI assets after deployments.
+* **Implementation notes (24 Oct 2026):**
+  * **Identity:** until ADR-007 accounts exist, bookmarks belong to an anonymous per-device UUID (`app/lib/device.ts`, `ht_timeline_device_v1`). The API accepts a UUID or the legacy `local` and rejects anything else. The server copy is therefore a per-device backup; on sign-in (ADR-007) the client will merge its set into the account, with no change to the outbox.
+  * **Outbox (`app/lib/bookmark-sync.ts`):** the device is the source of truth. Any change marks the full set pending (`ht_timeline_bookmark_sync_v1`) and sends one idempotent `PUT /api/bookmarks` after a 1 s debounce, one request at a time. Triggers: change, app start, `online`, tab visible, and Capacitor `resume`. Offline errors stay pending and call `requestBackgroundSync('sync-bookmarks')`. 4xx stops retrying until the set changes; 5xx retries on the next trigger.
+  * **Background Sync:** the pending request is also written to Cache Storage (`ht-outbox` → `/__outbox/bookmarks`), so the service worker's `sync` handler can send it with the page closed and tell open pages (`bookmarks-synced`). This is Chromium-only; Safari and the iOS/Android WebViews rely on the page triggers above. The server side is the existing atomic `$transaction` in `NewsStore.putBookmarks`.
+  * **Service worker (`public/sw.js`, v3):** registered as `/sw.js?api=<API origin>`, and only that origin's `/api/*` counts as API.
+    * Pages: network-first → cached page → `/offline.html`, so a deploy shows up at once.
+    * `/_next/static`, fonts, icons: cache-first (content-hashed).
+    * API GETs: network-first with a 6 s timeout, then cache, for an allowlist (`feed`, `articles`, `timeline`, `topics`, `trending`, `breaking`, `summaries`, `events`), capped at 200 entries. Bookmarks, health and feed config are never cached.
+    * Old caches are deleted on activate, and the 60 s update check is kept.
+  * **Offline reading:** saved articles are full snapshots in `localStorage` and open without a network, along with the last feed and timelines from the API cache.
+  * **Sanitization:** RSS text is tag-stripped at ingest (`rss.service.ts`), and React escapes all article text. The only raw HTML is the app's own theme boot script.
+  * **CSP:** production builds ship a `<meta>` CSP (`app/lib/csp.ts`): `default-src 'self'`, `connect-src` limited to the API and socket origins, `object-src 'none'`, `base-uri 'self'`. `'unsafe-inline'` scripts are required by Next's static export.
+  * **Headers to set once hosting is chosen:** `Content-Security-Policy` (same policy plus `frame-ancestors 'none'`), `Cache-Control: no-cache` for `/sw.js`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+  * **Native:** the Capacitor shell (Path A) uses the same outbox; the service worker is skipped there. `expo-sqlite` / NetInfo apply only to the React Native Path B.
 
 ---
 
@@ -184,3 +212,34 @@ This document contains the complete suite of Architecture Decision Records (ADRs
   * **Negative:** Introduces a recurring cost (≈ $19–$49/mo at launch) and per-day request quotas that need caching and monitoring; more moving parts (4 sources, background jobs, a real database); licence terms must be respected — store only headline, excerpt, link and metadata, never full article bodies, unless a source explicitly allows it.
   * **Rejected alternatives:** *Web crawling* (brittle, paywalls, ToS/legal risk, high ops cost — revisit only for full text from sources that allow it); *Google News RSS search* (not an official API, commercial use unclear); *GDELT-only* (rate limits and 3-month DOC window make the core promise impossible).
 * **Sources (pricing checked Oct 2026):** [TheNewsAPI pricing](https://www.thenewsapi.com/pricing), [GNews pricing & limits](https://apiterms.com/api/gnews.io/), [NewsData.io comparison](https://newsdata.io/blog/news-api-comparison/), [Best news APIs 2026](https://thunderbit.com/blog/best-news-apis-compared).
+* **Step 3 (25 Oct 2026):** adapter built in TheNewsAPI's format, off until `NEWS_API_KEY` is set; daily request quota persisted in `ProviderUsage`, 15-minute query cache. Choosing and paying for a provider is still open.
+* **Step 6 (25 Oct 2026):** Wikipedia "Timeline of …" pages supply dated milestones on story timelines (search-only provider, 24 h cache, stored as `Article.kind = milestone`, CC BY-SA attributed). Remaining: step 3 provider decision, step 5 BigQuery (next).
+* **Step 5 (25 Oct 2026):** BigQuery GKG backfill implemented behind credentials, with dry-run cost checks, a per-query cap, a monthly byte budget in `ProviderUsage` and a 30-day no-rescan rule per story. Only step 3's provider/budget decision remains open.
+
+---
+
+## ADR-009: Region-Aware Feed Selection (extends ADR-008)
+
+* **Status:** Accepted (implemented 25 Oct 2026)
+* **Date:** 24 Oct 2026
+* **Context:**
+  * ADR-008 layer 2 seeds curated publisher RSS (`apps/api/src/rss/curated-feeds.ts`). The list was US/UK-centric until Times of India feeds were added on 24 Oct 2026 for Indian news. Every user sees the same global feed, so an Indian reader gets Indian stories only by chance of recency.
+  * Region cannot be bolted on in the UI: articles carry no region, feeds are not tagged, and `/api/feed` ranks only by category and date.
+  * Constraints: location is personal data, ingestion is shared and polled once for all users (ADR-008), RSS is national rather than city-level, and LLM prompts must not carry user data (ADR-004).
+* **Decision:**
+  1. **Ingest globally, select at read time.** All curated feeds keep being polled once. Per-user fetching is rejected: it multiplies polling and fragments the shared archive.
+  2. **Tag by region.** Add `region` (ISO 3166-1 alpha-2, or `GLOBAL`) to `CuratedFeed` and `RssFeed`, copied to `Article.region` on ingest. For example, Times of India is `IN`, BBC and the Guardian `GB`, NPR and ESPN `US`, Al Jazeera and NASA `GLOBAL`. Migration backfills existing rows from their feed. GDELT articles use `sourcecountry` where present.
+  3. **The unit is country, not city.** National feeds cannot be filtered by city. City-level local news (for example TOI city feeds) is an optional later extension via a `city` tag on feeds.
+  4. **Where the user's region comes from, in order:** (a) explicit setting in the app; (b) device or browser locale (`Accept-Language` region / `Intl`); (c) a coarse country-level IP lookup, never precise geolocation and never prompting for permission. The result is stored as a user preference (local storage, or the account once ADR-007 accounts exist) and sent as `?region=IN` to `/api/feed` and `/api/timeline`.
+  5. **Boost, don't filter.** `/api/feed` ranks the user's region and `GLOBAL` first, within the existing category and date ordering. Other regions stay reachable, so the app does not become a filter bubble. A "Region" control in settings lets the user change or clear it. The default with no region is today's behaviour.
+  6. **Privacy.** IPs are used only for the lookup and never logged or stored. Region is not included in LLM prompts or summary cache keys (ADR-004); summaries stay global.
+* **Implementation steps (in order):**
+  1. Add `region` to `CuratedFeed`, `RssFeed` and `Article` (Prisma migration plus backfill); tag all curated feeds.
+  2. Accept an optional `region` on `/api/feed` and add the region boost to the store query and in-memory fallback, with tests.
+  3. Web: region setting, locale-based default, pass the parameter from `NewsContext`.
+  4. Optional: coarse IP fallback and city-level feeds.
+* **Consequences:**
+  * **Positive:** Indian users see Indian news first without extra polling; shared archive and caching are unchanged; no new third-party service in steps 1–3; opt-out is trivial.
+  * **Negative:** A schema change and backfill; region tags on feeds are maintained by hand; locale is only a proxy for location (travellers, VPNs), hence the explicit setting; boosting adds a ranking rule that needs tuning.
+  * **Rejected alternatives:** *Per-user ingestion* (cost and archive fragmentation); *hard filtering by region* (filter bubble, hides global stories); *precise GPS or city geolocation* (permission friction and sensitive data for little gain with national feeds).
+* **Implementation notes (25 Oct 2026):** implemented as decided, with one change: instead of ranking regional stories as if newer (a time bonus), the reader's region gets a fixed ~40% share of every feed page, interleaved and newest first. Measured on the dev data, any time bonus let the most prolific regional outlet fill the whole first page, which is the filter bubble this ADR wanted to avoid. `GLOBAL` items are not boosted. Region comes from the Settings choice or the device locale only (no IP lookup yet); city-level feeds remain a later extension.

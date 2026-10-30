@@ -11,7 +11,20 @@ import {
   type ReactNode,
 } from 'react';
 import { buildFeedArticles, getBreakingFromArticles } from '@/app/lib/feed-data';
-import { getArticle, getFeed } from '@/app/lib/api-client';
+import {
+  BOOKMARKS_URL,
+  getArticle,
+  getFeed,
+  httpStatusOf,
+  isOfflineError,
+  putBookmarks,
+} from '@/app/lib/api-client';
+import { BookmarkSync, cacheOutbox, type BookmarkSyncStatus } from '@/app/lib/bookmark-sync';
+import { getDeviceId } from '@/app/lib/device';
+import { effectiveRegion, readRegionSetting, writeRegionSetting, type RegionSetting } from '@/app/lib/region';
+import { requestBackgroundSync } from '@/app/components/PWAInitializer';
+import { isNative } from '@/app/lib/native';
+import { App } from '@capacitor/app';
 import type { ArticleCategory, BreakingNewsPayload, FeedArticle } from '@/app/types/article';
 
 const SAVED_KEY = 'ht_timeline_saved_v2';
@@ -41,6 +54,12 @@ interface FeedContextValue {
   dismissBreaking: () => void;
   savedArticles: FeedArticle[];
   bookmarkIds: Set<string>;
+  /** Server backup of this device's bookmarks (ADR-006). */
+  bookmarkSync: BookmarkSyncStatus;
+  /** Region preference for feed ranking (ADR-009) and the region actually sent. */
+  regionSetting: RegionSetting;
+  region: string | undefined;
+  setRegionSetting: (value: RegionSetting) => void;
   toggleBookmark: (article: FeedArticle | string) => void;
   isBookmarked: (articleId: string) => boolean;
   readIds: Set<string>;
@@ -110,6 +129,16 @@ export function FeedProvider({ children }: { children: ReactNode }) {
   const [reloadKey, setReloadKey] = useState(0);
   const pushedArticle = useRef(false);
   const [hydrated, setHydrated] = useState(false);
+  const syncRef = useRef<BookmarkSync | null>(null);
+  // 'auto' until hydrated, so the server render and first client render agree.
+  const [regionSetting, setRegionSettingState] = useState<RegionSetting>('auto');
+  const [regionReady, setRegionReady] = useState(false);
+  const region = useMemo(() => (regionReady ? effectiveRegion(regionSetting) : undefined), [regionReady, regionSetting]);
+  const [bookmarkSync, setBookmarkSync] = useState<BookmarkSyncStatus>({
+    state: 'synced',
+    lastSyncedAt: null,
+    lastError: null,
+  });
 
   // Restore saved articles + read state (migrating v1 id-only bookmarks).
   useEffect(() => {
@@ -124,11 +153,64 @@ export function FeedProvider({ children }: { children: ReactNode }) {
     }
     setSaved(savedMap);
     setReadIds(new Set(readJson<string[]>(READ_KEY, [])));
+    setRegionSettingState(readRegionSetting());
+    setRegionReady(true);
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (hydrated) writeJson(SAVED_KEY, saved);
+  }, [saved, hydrated]);
+
+  // Bookmark backup: created once on the client, then fed the full set on every change.
+  useEffect(() => {
+    const deviceId = getDeviceId();
+    const sync = new BookmarkSync({
+      put: (ids) => putBookmarks(deviceId, ids),
+      storage: typeof window === 'undefined' ? null : window.localStorage,
+      isOffline: isOfflineError,
+      statusOf: httpStatusOf,
+      outbox: cacheOutbox(BOOKMARKS_URL, deviceId),
+      requestBackgroundSync: () => requestBackgroundSync('sync-bookmarks'),
+      onChange: setBookmarkSync,
+    });
+    syncRef.current = sync;
+    setBookmarkSync(sync.status());
+
+    const retry = () => {
+      if (document.visibilityState === 'visible') void sync.flush();
+    };
+    const onWorkerMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; articleIds?: unknown } | null;
+      if (data?.type === 'bookmarks-synced' && Array.isArray(data.articleIds)) {
+        sync.confirm(data.articleIds.filter((id): id is string => typeof id === 'string'));
+      }
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', retry);
+    navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+    // Capacitor: the WebView's 'online' event isn't reliable after the app was suspended, so also retry on resume.
+    let disposed = false;
+    let removeResume: (() => void) | undefined;
+    if (isNative()) {
+      void App.addListener('resume', () => void sync.flush()).then((handle) => {
+        if (disposed) void handle.remove();
+        else removeResume = () => void handle.remove();
+      });
+    }
+    return () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', retry);
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+      disposed = true;
+      removeResume?.();
+      sync.dispose();
+      syncRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) syncRef.current?.markChanged(Object.keys(saved));
   }, [saved, hydrated]);
 
   useEffect(() => {
@@ -137,12 +219,13 @@ export function FeedProvider({ children }: { children: ReactNode }) {
 
   // First page: API → cached API payload → bundled mock stories.
   useEffect(() => {
+    if (!regionReady) return;
     let cancelled = false;
     (async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await getFeed(1);
+        const res = await getFeed(1, undefined, region);
         if (cancelled) return;
         const items = sortNewestFirst(res.items);
         setArticles(items);
@@ -169,13 +252,13 @@ export function FeedProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, regionReady, region]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || source !== 'api') return;
     setIsLoadingMore(true);
     try {
-      const res = await getFeed(page + 1);
+      const res = await getFeed(page + 1, undefined, region);
       setArticles((prev) => mergeById(prev, res.items));
       setHasMore(res.hasMore);
       setPage(page + 1);
@@ -184,7 +267,12 @@ export function FeedProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [hasMore, isLoadingMore, page, source]);
+  }, [hasMore, isLoadingMore, page, source, region]);
+
+  const setRegionSetting = useCallback((value: RegionSetting) => {
+    writeRegionSetting(value);
+    setRegionSettingState(value);
+  }, []);
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -328,6 +416,10 @@ export function FeedProvider({ children }: { children: ReactNode }) {
     dismissBreaking,
     savedArticles,
     bookmarkIds,
+    bookmarkSync,
+    regionSetting,
+    region,
+    setRegionSetting,
     toggleBookmark,
     isBookmarked,
     readIds,

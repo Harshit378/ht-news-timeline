@@ -89,3 +89,39 @@ describe('NewsStore (postgres mode) putBookmarks', () => {
     });
   });
 });
+
+describe('NewsStore region ranking (ADR-009, memory mode)', () => {
+  const at = (h: number) => new Date(Date.UTC(2026, 9, 24, h)).toISOString();
+
+  it('interleaves the reader region (~40%) without hiding anything', async () => {
+    const store = await memoryStore();
+    await store.upsertArticles([
+      { ...rec('us1', 'world', at(12)), region: 'US' },
+      { ...rec('us2', 'world', at(11)), region: 'US' },
+      { ...rec('gl1', 'world', at(10)), region: 'GLOBAL' },
+      { ...rec('in1', 'world', at(2)), region: 'IN' },
+      { ...rec('in2', 'world', at(1)), region: 'IN' },
+    ]);
+    expect((await store.listArticles()).map((a) => a.id)).toEqual(['us1', 'us2', 'gl1', 'in1', 'in2']);
+    // keys: in1 2.5, in2 5; us1 1.67, us2 3.33, gl1 5 → us1, in1, us2, gl1/in2 (newer first)
+    expect((await store.listArticles(undefined, { region: 'IN' })).map((a) => a.id)).toEqual([
+      'us1',
+      'in1',
+      'us2',
+      'gl1',
+      'in2',
+    ]);
+  });
+
+  it('tags old articles from their curated outlet once, leaving tagged rows alone', async () => {
+    const store = await memoryStore();
+    await store.upsertArticles([
+      { ...rec('a', 'world'), source: 'Times of India' },
+      { ...rec('b', 'world'), source: 'Times of India', region: 'GB' },
+    ]);
+    await store.backfillRegions(new Map([['Times of India', 'IN']]));
+    const byId = new Map((await store.listArticles()).map((a) => [a.id, a.region]));
+    expect(byId.get('a')).toBe('IN');
+    expect(byId.get('b')).toBe('GB');
+  });
+});

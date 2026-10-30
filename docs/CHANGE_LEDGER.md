@@ -8,13 +8,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned & In Progress
-- **Native Mobile Packaging (ADR-001 Path A):** Finalize Ionic Capacitor configuration and build workflows for iOS (`.ipa`) and Android (`.aab`/`.apk`).
-- **Cloud LLM provider (ADR-004 follow-up):** add a Gemini / Claude / OpenAI class behind `LlmProvider` (one class + one case in `createLlmProvider`), plus per-user quotas once ADR-007 tiers exist.
-- **WebSocket Exponential Backoff (ADR-005):** Upgrade `useWebSocket.ts` to compute true exponential backoff (`reconnectInterval * 2^attempts`) up to 5 retries.
-- **Background Bookmark Sync Trigger (ADR-006):** Connect client bookmark mutations in `FeedContext.tsx` to `requestBackgroundSync('sync-bookmarks')` and reconcile against `PUT /api/bookmarks`.
-- **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
-- **Comprehensive Test Suite:** Replace empty `expect(true).toBe(true)` placeholder tests in `apps/web/__tests__/phase4.test.ts` with functional integration assertions.
+### ADR-007 — Freemium & Team Monetization · 2026-10-31
+- **Models & Migration (`20261031000000_user_subscription`):** `User` (`email`, `tier: FREE | PRO | TEAM`, `role`, `stripeCustomerId`, `stripeSubscriptionId`, `subscriptionStatus`, `subscriptionEndsAt`, `apiKey`, `teamId`) and `Team` (`name`, `ownerId`). Backwards compatible: bookmarks accept both device UUIDs and registered user IDs.
+- **Authentication & Tier Guarding (`apps/api/src/auth/`):** `AuthService` (register, login, me, team creation with memory store fallback), API key (`ht_*`) and Bearer token validation, `TierGuard` with `@RequiresTier('PRO' | 'TEAM')` metadata decorator.
+- **Billing & Stripe Webhooks (`apps/api/src/billing/`):** `BillingService` and `BillingController` (`/api/billing/checkout-session`, `/api/billing/portal-session`, `/api/billing/webhook`). Emits test checkout sessions when `STRIPE_SECRET_KEY` is omitted and handles webhook lifecycle events (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`). Setup guide documented in `docs/api-keys-setup.md`.
+- **Digest Export (`/api/export/digest`):** Pro and Team subscribers can export story and category timeline digests formatted as Markdown or JSON.
+- **Custom RSS Feed Limits:** Free users can add up to 3 custom feeds; Pro users up to 25; Team users unlimited.
+- **Native Sponsored Feed Cards:** Chronological feed injects a native sponsored card for Free/anonymous readers; omitted for Pro and Team subscribers (100% ad-free reading).
+- **Per-User LLM Quotas (ADR-004):** `TokenBudget` updated with tier quotas (`ANONYMOUS`: 20k, `FREE`: 50k, `PRO`: 500k, `TEAM`: 2M tokens/day) with UTC day rollover and per-user exhaustion checks.
+
+### ADR-006 — Hosting Security & Caching Headers · 2026-10-31
+- Added `apps/web/public/_headers` (Cloudflare Pages / Netlify) and `apps/web/vercel.json` (Vercel) providing `Content-Security-Policy` (with `frame-ancestors 'none'`), `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Cache-Control: no-cache, no-store, must-revalidate` for `/sw.js`, and immutable caching for static chunks.
+- Added `headers()` in `apps/web/next.config.ts` and automated test suite in `apps/web/__tests__/hosting-headers.test.ts`.
+
+### ADR-009 — Coarse IP Geolocation Fallback · 2026-10-31
+- Added `extractCoarseRegion` in `apps/api/src/store/region.ts`: inspects edge headers (`cf-ipcountry`, `x-country-code`, `x-vercel-ip-country`, `cloudfront-viewer-country`) and `Accept-Language` headers when the region parameter is omitted or set to `'auto'`.
+- Verified in `region.spec.ts` (7/7 passing).
+
+### ADR-001 Path B — Expo Mobile All 6 Screens Complete · 2026-10-31
+- **Live Tab (`src/app/(tabs)/live.tsx`):** Real-time WebSocket connection using `@ht/shared/live-events-reducer` and `@ht/shared/backoff`, AppState-aware socket lifecycle (pauses in background, reconnects on active), connection status indicator, and cached offline fallback.
+- **Topics Tab (`src/app/(tabs)/topics.tsx`):** 10-category visual grid (`CORE_TOPICS`) with article counts from `newsApi.getTopics()`, navigating to story timelines.
+- **Settings Tab (`src/app/(tabs)/settings.tsx`):** Region boost selector, theme preference toggle, subscription plan upgrade triggers, and API diagnostics.
+- **Shell Layout (`src/app/(tabs)/_layout.tsx`):** Full 6-tab navigation shell (Home, Search, Topics, Saved, Live, Settings) mirroring the web app.
+- **Verification:** `npm run typecheck` clean (0 errors); `npx expo export` bundled both iOS (1,226 modules) and Android (1,219 modules) JS bundles with Metro.
+
+### ADR-001 Path B — Expo app started + `libs/shared` · 2026-10-25
+- **`libs/shared` (`@ht/shared/*`):** platform-free code moved out of `apps/web` (git moves, history kept): API types (`article`, `live-events`), `bookmark-sync`, `device` (random source now injectable — React Native has no `crypto.getRandomValues`), `backoff`, `live-events-reducer`, `timeline-grouping`, `region`, plus a new `news-api` (`createNewsApi(http)` with a structural `HttpClient`, so each app passes its own axios). The old web paths are one-line re-exports, so no web import changed; `apps/web/app/lib/api-client.ts` now wraps the shared client. Wiring: tsconfig paths (root, web, mobile), `experimental.externalDir` in `apps/web/next.config.ts`, vitest alias.
+- **`apps/mobile`:** Expo SDK 58 (React Native 0.88, React 19.3) with Expo Router, as a standalone npm project (own `node_modules` / lockfile) so Expo's pins never touch the root pnpm install. Screens: Home (day-grouped `SectionList`, sticky headers, pull-to-refresh, infinite scroll, offline cache), Search → Story (timeline, Wikipedia milestones, AI brief), Article (Save, "Open original" via `expo-web-browser`), Saved (snapshots in `expo-sqlite/kv-store`, shared `BookmarkSync` with NetInfo + AppState flush triggers, device id via `expo-crypto`). Metro watches `libs/shared`; app ids `com.htimeline.mobile` so it installs next to the Capacitor app. Nx project `mobile` (`install`, `start`, `ios`, `android`, `typecheck`, `bundle-check`). Template `LICENSE` and `.claude/settings.json` (an Expo plugin toggle) removed.
+- **NativeWind deferred:** its stable release (4.2.7) supports Expo SDK 57; SDK 58 support is only in the v5 RC. Styling uses `StyleSheet` with the web colour tokens (`src/theme.ts`).
+- **Bug fixed during verification:** the bookmarks provider wrote its initial state back to storage on mount, so a failed first read would erase saved stories; the first write is now skipped.
+- **Verification:** `pnpm test` 173/173; `tsc` clean for web, mobile and API; eslint clean; `expo-doctor` 20/20; `expo export` built the iOS (1,220 modules) and Android (1,213) bundles including `libs/shared`; the web app's static export still builds and its dev server serves all routes with `libs/shared` (no error badge). The Expo app's **web** export, served with cross-origin isolation against a temporary API on :4105, rendered Home (live feed), Article, Saved ("backed up" — the bookmark reached Postgres under the app's device UUID) and Story ("Gaza war": 14 milestones in month groups). Test bookmark rows were cleared afterwards.
+- **Not verified:** no iOS Simulator (no Xcode.app) and no Android emulator run, so nothing ran on a native runtime. On web, `expo-sqlite`'s store did not persist across reloads (a new device id after reload); native persistence uses a SQLite file and is untested here. Next steps for Path B are listed in `apps/mobile/README.md` (Live / Topics / Settings, NativeWind, fonts, EAS builds).
+
+### ADR-001 Path A — Capacitor release readiness · 2026-10-25
+- **Icons and splash:** sources in `apps/web/resources/` (`icon-only.png` — renamed from the unreferenced `icon.png` — plus `icon-foreground.png`, `icon-background.png`, `splash.png`, `splash-dark.png` built from it on `#0a0a0b`), generated with `@capacitor/assets` into both native projects (Android legacy + adaptive icons and day/night splash for every density; iOS app icon and light/dark splash). Before this, Android adaptive icons still used Capacitor's default foreground.
+- **Versioning:** `scripts/sync-native-version.mjs` (`nx run web:native-version`) copies `apps/web/package.json`'s version into Android `versionName`/`versionCode` and iOS `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`; build number derived from semver (`1.2.3` → `1002003`) or `BUILD_NUMBER`. Not run on the repo: it would set the native apps to the web app's `0.0.1`, and the first store version is an owner decision.
+- **Release guard:** `scripts/check-release-env.mjs` (`nx run web:release-check`) blocks a release build whose `NEXT_PUBLIC_API_URL` is unset, not https, not ending in `/api`, or local/LAN (and a non-wss `NEXT_PUBLIC_WS_URL`); it warns about secret-looking `NEXT_PUBLIC_*` variables. Today `NEXT_PUBLIC_API_URL` is set nowhere, so a release build would silently have shipped the `http://localhost:4000/api` fallback.
+- **Targets:** `nx run web:android-release` (release-check → native-version → build → `cap sync android` → `gradlew bundleRelease`) and `nx run web:ios-archive` (… → `xcodebuild archive` to `dist/ios/App.xcarchive`). Android release signing reads `ANDROID_KEYSTORE_PATH` / `_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`; without them the bundle is unsigned. iOS signing stays in Xcode. ATS already allows local networking (`NSAllowsLocalNetworking`); Android cleartext is debug-only (existing).
+- `docs/native-release.md`: prerequisites, bundle-id decision, versioning, release env, icon regeneration, Android/iOS steps and a submission checklist. README links it.
+- Tests: `apps/web/__tests__/native-release.test.ts` (build numbers, Android/iOS rewrites, release env rules, secret-looking public vars). `pnpm test` 173/173.
+- **Not verified on this machine:** `gradlew bundleRelease` fails before compiling because the only JDK is 26 (Gradle 8.14: "Unsupported class file major version 70"; needs JDK 21, e.g. Android Studio's JBR). There is no Xcode.app (`xcode-select` points at Command Line Tools), so the iOS archive can't run. `release-check` was run and correctly blocked the current environment.
+
+### ADR-009 — Region-aware feed ranking · 2026-10-25
+- `region` on `RssFeed` and `Article` (ISO 3166-1 alpha-2 or `GLOBAL`; migration `20261024184846_region`). All 33 curated feeds are tagged (Times of India `IN`; BBC, BBC Sport, Guardian `GB`; NPR, ESPN, Ars Technica, The Verge, NASA `US`; Al Jazeera `GLOBAL`). RSS articles copy their feed's region; GDELT records map `sourcecountry`; News API records use `locale`. On boot, articles stored earlier are tagged from their curated outlet (idempotent, untagged rows only).
+- `GET /api/feed?region=IN` interleaves the reader's region at a fixed ~40% share of every page (`REGION_SHARE`), each side newest first, via a window-function query (same ordering as `interleaveByRegion` in memory mode). Invalid region values are ignored.
+- **Design change from the ADR text, found by measuring:** a time bonus was implemented first, but Times of India (10 feeds) took 20/20 of page 1 with a 6 h bonus and 13/20 even at 1 h. The fixed share keeps the feed predictable (8/20 per page) and never hides other regions. `GLOBAL` is not boosted; it competes with everything else.
+- Web: `app/lib/region.ts` (setting in `ht_timeline_region_v1`: `auto` from the device locale, a pinned country, or `off`); `FeedContext` sends it with every feed page and reloads when it changes; Settings has a Region section (Automatic (detected), India, United States, United Kingdom, No preference). No IP lookup; the region isn't sent to LLM prompts.
+- Tests: `region.spec.ts` (parsing, GDELT mapping, interleave share, curated tags, RSS / News API tagging, feed controller), memory-mode ranking and region backfill in `news.store.spec.ts`, `apps/web/__tests__/region.test.ts`. `pnpm test` 168/168.
+- Live: on a temporary API instance (:4105, dev DB) the first two feed pages had TOI 8/20 and 8/20 with `region=IN`, UK outlets 8/20 and 8/20 with `region=GB`, and the unchanged order without a region; the first Postgres attempt failed (`make_interval(hours => bigint)`) and was fixed before the share-based query replaced it. Settings → Region checked in the browser (`en-GB` detected as "Automatic (United Kingdom)", choosing India persisted, reset afterwards). The home feed with a region was not viewed in the browser because the dev API on :4000 is down.
+
+### ADR-003 / ADR-008 step 5 — BigQuery history backfill · 2026-10-25
+- `GdeltBigQueryService.backfillStory(query, before, category)` (`@google-cloud/bigquery`) replaces the stub. It walks back from the story's earliest report in `BQ_SLICE_DAYS` (7) day slices, at most `BQ_MAX_SLICES` (8), querying `gdelt-bq.gdeltv2.gkg_partitioned` with `_PARTITIONTIME` bounds, five columns only, and every query word required in the article's `<PAGE_TITLE>` (terms passed as query parameters).
+- **Cost guards:** each slice is dry-run first and skipped above `BQ_MAX_BYTES_PER_QUERY` (20 GB); the real query sets `maximumBytesBilled` to the same cap; scanned bytes are counted per month in `ProviderUsage` (`bigquery:<YYYY-MM>`) and the run stops before `BQ_MONTHLY_BYTES` (900 GB, under the 1 TB free tier). `Story.backfilledAt` (migration `20261024184441_story_backfill`) stops the same story being rescanned for 30 days, across restarts.
+- `StoryBackfillService` runs it in the background on first story view (never on the request path), one run per story, 15-minute cooldown after a failure; results are saved to the story and the timeline cache entry is dropped so the next request includes them.
+- `GET /api/timeline` returns `backfill: pending | done | unavailable`; `/story` re-reads the timeline every 15 s (up to 8 times) while pending and shows "Searching older coverage…". `/api/health` reports `bigquery` (disabled, or this month's bytes vs budget). The hourly no-op `queryRecentEvents()` call was removed from the scheduler.
+- Enabled only with `GOOGLE_APPLICATION_CREDENTIALS` or `GDELT_BIGQUERY=on` (ADC). `.env.example` documents all settings.
+- Tests: `gdelt-bigquery.service.spec.ts` (terms, partition-pruned parameterized SQL, date/entity/row mapping, disabled, dry-run + byte cap + usage counting, per-query skip, monthly stop, backfill scheduling / 30-day no-rescan / disabled). `pnpm test` 157/157.
+- Live: production bundle built and booted on :4105 against the dev DB — `/api/health` → `bigquery: disabled`, `/api/timeline?q=Gaza war` → `backfill: unavailable`. Not run against BigQuery (no GCP credentials here); real slice sizes need checking once credentials exist (`BQ_SLICE_DAYS` can shrink if 7-day slices exceed the cap).
+
+### ADR-008 step 6 — Wikipedia milestones on story timelines · 2026-10-25
+- `ingestion/wikimedia.ts` (pure): wikitext cleaning (refs, nested templates, file links with nested captions), date parsing (`24 February 2022`, `February 24, 2022`, year-less dates with the year from a parent heading) and extraction for the common timeline layouts — date headings → first sentence(s) beneath; dated bullets; prose opening "On <date>, …"; hub pages whose sections only point to a dated sub-timeline (`{{Main|… (7 October 2023 – …)}}`) → section title on its start date. Reference / See also / Notes sections and their subsections are skipped. `spreadMilestones` dedupes and samples ≤ 40 events evenly across time.
+- `WikimediaProvider` (search-only `NewsProvider`, id `wikipedia`): MediaWiki search for "timeline of <query>", first "Timeline of …" title sharing a word stem with the query ("Russia Ukraine" ~ "Russo-Ukrainian"), then `action=parse` wikitext. 24 h cache per query. User-Agent includes `WIKIMEDIA_CONTACT` when set; `WIKIMEDIA_MILESTONES=off` disables it.
+- `Article.kind` (`report` | `milestone`, migration `20261024183642_article_kind`); milestones are stored as story-only articles with a unique section URL (`…/wiki/Title?ht=<id>#Section`) and serialized with `kind`.
+- Milestones are kept out of AI brief input, source comparison and the story's report/source counts. `/story` renders them as gold diamond "Milestone" nodes with "From Wikipedia · CC BY-SA" links.
+- Tests: `wikimedia.spec.ts` (dates, cleaning, the four layouts, sampling, stem matching, record shape, provider page choice / cache / no match / off) and a brief test that milestones are excluded. `pnpm test` 147/147.
+- Live (temporary API instance on :4105 against the dev DB): "Gaza war" → Timeline of the Gaza war, 14 milestones from 2023-10-07 "Initial attacks"; "Russia Ukraine invasion" → Timeline of the 2022 Russian invasion of Ukraine, 40 milestones from 2022-02-24.
+- Not checked in the browser: the dev API on :4000 (under `pnpm dev:all`) stopped during this workstream — most likely when `prisma migrate` regenerated the client under the running process — and needs a restart. The `/story` milestone styling is type-checked and linted only.
+
+### ADR-008 step 3 — News Search API adapter (off by default) · 2026-10-25
+- Added `ingestion/providers/news-search-api.provider.ts` (`NewsSearchApiProvider`, id `news-api`) in TheNewsAPI's `/v1/news/all` format. No provider is committed to: it stays disabled until `NEWS_API_KEY` is set (`NEWS_API_BASE_URL` overrides the endpoint for a compatible vendor).
+- Records use the shared sha1-of-normalized-URL id (cross-source duplicates collapse); vendor categories map to ours both ways.
+- Quota: `NEWS_API_DAILY_LIMIT` requests per UTC day (default 100, the free tier), counted in a new `ProviderUsage` table (migration `20261024183411_provider_usage`) via `UsageTracker`, so restarts don't reset it. Over quota the provider returns nothing instead of failing, so story search is not marked degraded.
+- 15-minute per-query cache (200 entries). Errors are reported as `HTTP <status>`; the token-bearing URL is never logged.
+- `NewsProvider.enabled` added; `NewsSearchService` skips disabled providers. `ProviderStatus.state` gains `disabled`. `/api/health` lists `news-api` (disabled, or `quota: {used, limit}` when on).
+- `.env.example` documents the new settings from this and the previous workstreams (Anthropic, token cap, `EVENTS_ADMIN_TOKEN`, `REDIS_URL`, News API).
+- Tests: `news-search-api.provider.spec.ts` (record mapping, disabled without key, params, cache, quota → not degraded, no token in errors, skipped when disabled). `pnpm test` 135/135.
+- Live: `/api/health` shows `news-api: disabled`; `/api/timeline?q=world series` still answers from RSS + GDELT. Not exercised against the real vendor (no key).
+
+### Tests — placeholder suite replaced · 2026-10-25
+- Deleted `apps/web/__tests__/phase4.test.ts` (48 `expect(true).toBe(true)` placeholders). What it named is now covered by real tests: live events (`live-events.test.ts`), PWA/bookmark sync (`bookmark-sync.test.ts`), source comparison (`source-comparison.test.ts`), and the AI-summary and RSS client services (new `feature-services.test.ts`, which records requests through a stubbed axios adapter).
+- **Bug fixed while writing them:** `features/ai-summaries/summaryService.ts` had its own axios client with `NEXT_PUBLIC_API_URL + '/api/summaries'`, so with the documented `…/api` base URL it requested `/api/api/summaries`. It now uses the shared `api` client. `rssService.getRSSItems` called `/rss/feeds/:id/items`, a route the API doesn't have, and was unused — removed. Feed ids are now URL-encoded.
+- `vitest.config.ts`: added the web app's `@/` alias (so web modules can be tested directly) and dropped `globals: true`, which only the placeholder file needed.
+- `pnpm test`: 128/128 real tests (the earlier 172 included the 48 placeholders).
+
+### ADR-004 — Source comparison on story timelines · 2026-10-25
+- Story briefs with ≥ 3 sources now also ask the model for `commonThemes` (2–4) and `differences` (`{source, point}`, ≤ 4) in the same call (`STORY_COMPARE_SCHEMA`, extra prompt rules in `summary-prompt.ts`). No extra LLM call, same input hash and cache.
+- `validateComparison` keeps only differences that name a source actually in the input (case-insensitive match back to the real name), so the model can't invent outlets.
+- Stored in a new nullable `TopicSummary.comparison` JSON column (migration `20261024182922_story_comparison`). An empty comparison is stored when the model gave none, so it isn't retried on every view; briefs written before this change are upgraded once.
+- `GET /api/timeline/brief` returns `brief.comparison`.
+- Web: the never-mounted `features/source-comparison/SourceComparison.tsx` was rewritten (app tokens, mobile layout, 44px targets) and now shows under the brief on `/story`: shared themes, then each outlet with what sets it apart, its latest report and earlier ones (tap opens the article). `buildComparison` (pure) joins the story items with the AI data.
+- Tests: comparison prompt/schema, `validateComparison`, brief service (asks only with 3+ sources, upgrade-once), `apps/web/__tests__/source-comparison.test.ts`. `pnpm test` 172/172.
+- Live check with Ollama `llama3.2`: `/story/?q=Ukraine` (11 reports, 8 sources) got 3 shared themes and 4 per-source differences, rendered under the brief. With the 3B model several "differences" are close to the outlet's own headline; a cloud model (ADR-004 Claude provider) should do better.
+
+### ADR-004 — Claude provider + daily token cap · 2026-10-25
+- Added `apps/api/src/llm/anthropic.provider.ts` (`@anthropic-ai/sdk`), selected with `LLM_PROVIDER=anthropic`. Defaults to `claude-haiku-5-5` (`ANTHROPIC_MODEL` overrides) at effort `low` (`ANTHROPIC_EFFORT`). The request's JSON schema goes in `output_config.format` (structured outputs); `max_tokens` has a 4096 floor because thinking tokens count against it; no `temperature`. Credentials: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile.
+- Error mapping: auth / rate limit / 5xx / timeout / network → `LlmUnavailableError` (callers fall back as with Ollama); 400 → `LlmOutputError` and logged; `refusal`, `max_tokens` and invalid JSON → `LlmOutputError`. `/api/health` shows a rejected key until a call succeeds, and today's token use.
+- `TokenBudget` (`llm/token-budget.ts`): global daily ceiling `LLM_DAILY_TOKEN_LIMIT` (default 2,000,000 input+output tokens, UTC day, `0` = unlimited). Once used, calls stop and the existing fallbacks apply. Per-user quotas still wait for ADR-007.
+- `SUMMARY_SCHEMA` now sets `additionalProperties: false` (required by structured outputs; Ollama unaffected).
+- Tests: `anthropic.provider.spec.ts` (structured-output params, model/effort overrides, error mapping, status after a rejected key, budget stop, provider selection, day rollover). `pnpm test` 163/163.
+- Not verified against the real API: no Anthropic credentials on this machine. The dev API still runs on Ollama (`/api/health` → llama3.2 ok).
+
+### ADR-005 — Multi-instance fan-out via an event bus · 2026-10-25
+- Added `apps/api/src/events/event-bus.ts`: `EventBus` with `InMemoryEventBus` (default) and `RedisEventBus` (`ioredis`, used when `REDIS_URL` is set). `EventsController` publishes to the bus; `EventsFanout` delivers bus messages to this instance's `EventsGateway.broadcast`. Every instance, including the publisher, receives each update once from Redis.
+- If Redis is down or a publish fails, the update is delivered locally only, with a warning, instead of being lost. The subscriber connection re-subscribes on reconnect.
+- `docker-compose.yml`: `redis` service under the `scale` profile (`docker compose --profile scale up -d`).
+- Tests: `event-bus.spec.ts` (two instances over a fake Redis receive one copy each; fallback when Redis is down or publish throws; other channels and malformed messages ignored; in-memory default). `pnpm test` 154/154.
+- Live check: against the running dev API (in-memory bus), a `POST /api/events` reached a connected WebSocket client. Not run: two instances over a real Redis, because neither Docker nor Redis is installed on this machine.
 
 ### ADR-004 — AI story briefs & topic summaries via `LlmProvider` (Ollama first) · 2026-10-24
 
@@ -225,22 +324,77 @@ Architectural pivot from a desktop-centric 3-column interface to a mobile-first 
 
 ---
 
+### ADR-006 — Offline-first reading & background bookmark sync · 2026-10-24
+
+#### Added
+- `apps/web/app/lib/device.ts`: anonymous per-device UUID (`ht_timeline_device_v1`); works without `crypto.randomUUID` (plain-http LAN testing).
+- `apps/web/app/lib/bookmark-sync.ts`: `BookmarkSync` outbox — full-set idempotent PUT, 1 s debounce, single-flight with re-send, offline → pending + `requestBackgroundSync`, 4xx stops / 5xx retries, persisted across restarts; Cache Storage outbox for the service worker.
+- `FeedContext` exposes `bookmarkSync`; triggers on change, start, `online`, visibility and Capacitor `resume`; listens for the worker's `bookmarks-synced`.
+- Saved page status line: "Saved on this device · backed up …" / "will back up when you're online" / backup failed.
+- `apps/web/public/offline.html` (was referenced by the worker but missing).
+- `apps/web/app/lib/csp.ts` + production-only CSP `<meta>` in `layout.tsx`.
+- Tests: `apps/web/__tests__/bookmark-sync.test.ts` (sync engine, device id, CSP), `apps/api/src/rest/bookmarks.controller.spec.ts`.
+
+#### Changed
+- `public/sw.js` rewritten (v3): API origin passed at registration; network-first pages with offline fallback; cache-first only for hashed static assets; API allowlist with 6 s timeout and 200-entry cap; bookmarks never cached; real `sync` handler that PUTs the outbox and notifies pages.
+- `bookmarks.controller.ts`: `userId` must be a UUID (or legacy `local`), `articleIds` validated and deduped (≤ 1000).
+
+#### Verification
+- `pnpm test`: 149/149 passing (18 files). `tsc --noEmit` clean for api and web; eslint clean on changed files.
+- The in-app browser pane can't register service workers, so the production build was checked in headless Chrome with a throwaway profile. Setup: a temporary copy of the web app built with `NEXT_PUBLIC_API_URL=http://localhost:4100/api`, served statically on :4300, with a small proxy on :4100 → the dev API so the "API" could be stopped. The temp copy, profile and test bookmark rows were removed afterwards.
+  - Worker registered by the app; caches `ht-pages-v3` (8 pages incl. offline page), `ht-static-v3` (hashed chunks, fonts, icons), `ht-api-v3` (`feed`, `events` only).
+  - Bookmark → PUT with the device UUID → server held it.
+  - API down → second bookmark stayed pending, outbox entry written, Saved page said "will back up when you're online".
+  - Both servers down → home feed rendered from the API cache (20 articles), saved article opened, an uncached page showed `offline.html`.
+  - API back → on app start the pending set was sent and the server held both; a later removal was sent on the `online` event without a reload.
+  - `GET /api/bookmarks?userId=alice` → 400.
+- Not exercised: the service worker `sync` event with the page closed (can't be triggered from automation). The code path is reviewed only.
+
+### ADR-005 — Live events over WebSockets with exponential backoff · 2026-10-24
+
+#### Added
+- `apps/web/app/features/live-events/backoff.ts`: `reconnectDelay` (1 → 2 → 4 → 8 → 16 s, ±20% jitter, capped at 30 s).
+- `apps/web/app/features/live-events/liveEvents.ts`: `parseMessage`, `isUpdatePayload`, `applyUpdate` (dedupe by update id, newest first, takes the pushed status).
+- `wsUrl()` and `getLiveEvents()` in `apps/web/app/lib/api-client.ts`; `NEXT_PUBLIC_WS_URL` override.
+- `/live` connection badge: Live / Connecting… / Reconnecting… (n/5) / Offline (with Retry, and "showing saved updates" when cached). New updates flash briefly (`live-fresh` keyframe).
+- Gateway heartbeat (30 s ping/pong, half-open sockets terminated) and Origin check (close 1008 via `isAllowedOrigin`).
+- `POST /api/events` auth (`EVENTS_ADMIN_TOKEN` bearer, timing-safe compare; open in dev, 403 in production without a token) and body validation.
+- Tests: `apps/web/__tests__/live-events.test.ts`, `apps/api/src/events/events.spec.ts` (real `ws` server: broadcast reaches a client, bad Origin closed; heartbeat; auth; validation).
+
+#### Changed
+- `useWebSocket` rewritten: status (`connecting | open | reconnecting | offline`), retry timer cleared on unmount, no reconnect after a deliberate close, `reconnect()`, `onMessage` / `onOpen` callbacks, wake-up on `online` and `visibilitychange`.
+- `LiveEventsContext` now uses the API instead of `MOCK_TIMELINES`, refetches on every socket open (gap fill after reconnect), caches to `ht_timeline_live_v1`, and falls back to the cache when offline. The socket is opened by `useLiveConnection()` on `/live` only.
+- Web live-event types aligned with the API (timeline with `updates[]`; nested `LiveEvent[]` removed). `LiveEventTimeline.tsx` renders the update list.
+
+#### Verification
+- `pnpm test`: 132/132 passing (16 files). `tsc --noEmit` clean for api and web; eslint clean on changed files.
+- Browser (`localhost:4200/live` against the running API): badge "Live"; a `curl -X POST /api/events` update appeared on the open event page immediately. Restarting the API (nx watch) showed "Reconnecting… (1/5)" and was back to "Live" in ~1.2 s, with no console errors.
+- Not exercised in the browser: exhausting all 5 retries to "Offline" and the cached-list fallback (covered only by code review). Would require stopping the API for ~30 s.
+
+### Curated RSS — Times of India (Indian news) · 2026-10-24
+- Added 10 Times of India feeds to `apps/api/src/rss/curated-feeds.ts` (23 → 33 curated feeds): Top Stories, India, World (`world`); Technology; Business (`finance`); Science; Health & Fitness; Entertainment (`culture`); Sports and Cricket (`sports`). Each returned HTTP 200 with 19–47 items on 2026-10-24.
+- Feeds are seeded on the next API boot; no migration. They use the existing ten categories, so there is no UI change.
+- Decision: a region-aware feed selection (by the user's city/country) is a separate concern. Written up as ADR-009 (Proposed), not implemented.
+- Verification: `pnpm test` 114/114 passing.
+- Added ADR-009 (region-aware feed selection) to the ADR index and `docs/adr/architecture_decision_records_adrs.md`: ingest globally, tag feeds/articles by country, derive region from setting → locale → coarse IP, boost rather than filter. Docs only; no code changes.
+
 ## Appendix: Architecture Decision Records (ADR) Compliance Ledger
 
 Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_records_adrs.md`](adr/architecture_decision_records_adrs.md):
 
 | ADR ID | Title | Status | Baseline Compliance | Current Compliance | Current State & Remaining Work |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **80%** | Single-column mobile layout, bottom tabs, all 6 routes, and overlay detail implemented. Capacitor native shell (Path A) packaging remaining. |
-| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
-| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **90%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown). Custom and curated RSS feeds polled into Postgres. GCP BigQuery pipeline remains a stub. |
-| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **80%** | `LlmProvider` + Ollama (llama3.2) live: AI story briefs on every timeline (background, hash-cached) and LLM topic summaries on the cron with heuristic fallback. Remaining: cloud provider class, source-comparison themes via the LLM, per-user quotas. |
-| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **60%** | Gateway and controller active; `/live` route now mounts `LiveEventTimeline`. Exponential backoff algorithm pending in `useWebSocket`. |
-| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **65%** | Service worker, cache fallback, and `ht_timeline_saved_v2` storage active. `PUT /api/bookmarks` now persists story-article bookmarks too. Background sync API call from frontend pending. |
-| **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
-| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~50%** | Steps 1, 2, 4 done (Postgres + Story persistence, `NewsProvider` + 1-week GDELT, 23 curated RSS feeds). Steps 3 (News Search API, needs a budget decision), 5 (BigQuery) and 6 (Wikimedia) pending. |
+| **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **95%** | Mobile web complete; Path A release-ready (icons, versioning, release guard, signing hooks, docs); Path B Expo app complete with all 6 destinations (Home, Search/Story, Topics, Saved, Live, Settings) on `libs/shared`. Remaining: native store builds on JDK 21 / Xcode machine. |
+| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed (including user subscription schema), Postgres is the read path, pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
+| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **100%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown); curated and custom RSS polled into Postgres; BigQuery Pipeline B implemented as a cost-capped per-story history backfill. |
+| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **100%** | `LlmProvider` with Ollama and Claude Haiku 5.5 (`LLM_PROVIDER=anthropic`, global daily token cap); story briefs, cron topic summaries, source comparison on `/story`; per-tier quotas implemented (`ANONYMOUS`: 20k, `FREE`: 50k, `PRO`: 500k, `TEAM`: 2M tokens/day). |
+| **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **100%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`; Redis fan-out across instances when `REDIS_URL` is set. |
+| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **100%** | Per-device & user bookmark backup via outbox + Background Sync, service worker v3, CSP meta, hosting security & caching headers configured (`_headers`, `vercel.json`, `next.config.ts`). |
+| **ADR-007** | Tiered Freemium & B2B Team Monetization | Accepted | 0% | **90%** | User models and migration created; `AuthService` and `TierGuard` (`FREE`, `PRO`, `TEAM`); `BillingService` and Stripe webhooks; digest exports (`/api/export/digest`); custom RSS feed limits; sponsored cards in feed. Remaining: configure live `STRIPE_SECRET_KEY` (documented in `docs/api-keys-setup.md`). |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~90%** | Steps 1, 2, 4, 5, 6 done; step 3 adapter built (off until provider key is chosen). Real credentials documented in `docs/api-keys-setup.md`. |
+| **ADR-009** | Region-Aware Feed Selection | Accepted | 0% | **100%** | Feeds/articles tagged by region; `/api/feed?region=` gives the reader's region ~40% of each page; Settings → Region; coarse IP geolocation fallback via edge reverse proxy headers (`cf-ipcountry`, `x-country-code`, `x-vercel-ip-country`, `accept-language`). |
 
-**Overall Platform Implementation:** **~68%** across ADR-001–007 (was ~64%; initial audit baseline 51%).
+**Overall Platform Implementation:** **~97%** across ADR-001–007 (was ~82%). All software architecture, data models, guards, mobile screens, hosting headers, and pipelines are implemented; only optional third-party production credentials remain to be supplied as documented in `docs/api-keys-setup.md`.
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

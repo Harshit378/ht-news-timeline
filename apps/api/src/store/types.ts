@@ -14,6 +14,10 @@ export interface ArticleRecord {
   importance: string;
   storyClusterId: string | null;
   tone: number | null;
+  /** "report" (default) or "milestone" (Wikipedia event, ADR-008 step 6). */
+  kind?: string;
+  /** ISO 3166-1 alpha-2 country of the outlet, "GLOBAL", or null/undefined when unknown (ADR-009). */
+  region?: string | null;
 }
 
 export interface BookmarkRecord {
@@ -38,6 +42,8 @@ export interface TopicSummaryRecord {
   relatedTopics: string[];
   trend: string;
   confidence: number;
+  /** Story briefs only (ADR-004 source comparison). */
+  comparison?: { commonThemes: string[]; differences: { source: string; point: string }[] } | null;
 }
 
 export interface RssFeedRecord {
@@ -49,6 +55,8 @@ export interface RssFeedRecord {
   isActive: boolean;
   origin: string;
   source: string | null;
+  /** ISO 3166-1 alpha-2 or "GLOBAL" (ADR-009). */
+  region?: string | null;
   etag: string | null;
   lastModified: string | null;
   lastChecked: Date | null;

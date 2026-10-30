@@ -59,6 +59,7 @@ export function itemToArticle(item: ParsedFeedItem, feed: RssFeedRecord, now = n
     importance: 'normal',
     storyClusterId: `${feed.category}-${publishedAt.toISOString().slice(0, 10)}`,
     tone: null,
+    region: feed.region ?? null,
   };
 }
 
@@ -80,11 +81,17 @@ export class RssIngestionService {
 
   /** Adds missing curated feeds and refreshes their metadata; never overrides a user's on/off toggle. */
   async seedCurated() {
+    await this.seedFeeds();
+    // Articles stored before regions existed get their outlet's region once (ADR-009).
+    await this.store.backfillRegions(new Map(CURATED_FEEDS.map((c) => [c.source, c.region])));
+  }
+
+  private async seedFeeds() {
     for (const c of CURATED_FEEDS) {
       const existing = this.store.findFeedByUrl(c.url);
       await this.store.saveFeed(
         existing
-          ? { ...existing, title: c.title, source: c.source, category: c.category, origin: 'curated' }
+          ? { ...existing, title: c.title, source: c.source, category: c.category, region: c.region, origin: 'curated' }
           : {
               id: randomUUID(),
               title: c.title,
@@ -94,6 +101,7 @@ export class RssIngestionService {
               isActive: true,
               origin: 'curated',
               source: c.source,
+              region: c.region,
               etag: null,
               lastModified: null,
               lastChecked: null,

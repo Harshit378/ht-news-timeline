@@ -25,6 +25,10 @@ model Article {
   tone           Float?
   /// false for articles fetched only for a story timeline: resolvable by id, kept out of feed/trending.
   inFeed         Boolean    @default(true)
+  /// "report" (a news article) or "milestone" (a dated event from Wikipedia, ADR-008 step 6).
+  kind           String     @default("report")
+  /// ISO 3166-1 alpha-2 country of the outlet, "GLOBAL", or null when unknown (ADR-009).
+  region         String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   bookmarks      Bookmark[]
@@ -44,6 +48,8 @@ model Story {
   firstSeen     DateTime?
   lastSeen      DateTime?
   lastFetchedAt DateTime
+  /// When the BigQuery history backfill last ran for this story (ADR-008 step 5); limits repeat scans.
+  backfilledAt  DateTime?
   createdAt     DateTime       @default(now())
   articles      StoryArticle[]
 }
@@ -67,6 +73,33 @@ model Bookmark {
   createdAt DateTime @default(now())
 
   @@unique([userId, articleId])
+}
+
+/// User accounts and subscription tiers (ADR-007).
+model User {
+  id                   String     @id @default(cuid())
+  email                String     @unique
+  name                 String?
+  tier                 String     @default("FREE")
+  role                 String     @default("reader")
+  stripeCustomerId     String?    @unique
+  stripeSubscriptionId String?    @unique
+  subscriptionStatus   String?    @default("active")
+  subscriptionEndsAt   DateTime?
+  apiKey               String?    @unique
+  teamId               String?
+  team                 Team?      @relation(fields: [teamId], references: [id])
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  members   User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model LiveEvent {
@@ -112,6 +145,8 @@ model TopicSummary {
   relatedTopics String[]
   trend         String
   confidence    Float
+  /// Story briefs only: { commonThemes, differences[{source, point}] } (ADR-004 source comparison).
+  comparison    Json?
 }
 
 model RssFeed {
@@ -123,6 +158,8 @@ model RssFeed {
   isActive     Boolean   @default(true)
   /// 'curated' (seeded publisher feeds, ADR-008) or 'user' (added via /api/rss/feeds).
   origin       String    @default("user")
+  /// ISO 3166-1 alpha-2 or "GLOBAL" (ADR-009); copied to the feed's articles.
+  region       String?
   /// Display name for articles from this feed, e.g. "BBC News"; falls back to title.
   source       String?
   etag         String?
@@ -133,4 +170,15 @@ model RssFeed {
   failureCount Int       @default(0)
   itemCount    Int       @default(0)
   addedAt      DateTime  @default(now())
+}
+
+/// Paid / metered upstream usage per period (ADR-008): requests per UTC day for the News Search API,
+/// bytes scanned per month for BigQuery. Survives restarts so quotas hold.
+model ProviderUsage {
+  /// "<provider>:<period>", e.g. "news-api:2026-10-25" or "bigquery:2026-10".
+  id        String   @id
+  provider  String
+  period    String
+  amount    Float    @default(0)
+  updatedAt DateTime @updatedAt
 }

@@ -1,137 +1,170 @@
-// Service Worker for News Timeline PWA
-// Handles offline caching and background sync
+// Service Worker for News Timeline PWA (ADR-006): offline reading + background bookmark sync.
+// Registered as /sw.js?api=<API origin> by PWAInitializer; only that origin's /api/* is treated as API.
 
-const CACHE_NAME = 'news-timeline-v2';
-const API_CACHE = 'news-timeline-api-v2';
+const VERSION = 'v3';
+const STATIC_CACHE = `ht-static-${VERSION}`;
+const PAGES_CACHE = `ht-pages-${VERSION}`;
+const API_CACHE = `ht-api-${VERSION}`;
+// Written by the page (app/lib/bookmark-sync.ts), read by the `sync` handler. Not versioned: it holds user data.
+const OUTBOX_CACHE = 'ht-outbox';
+const OUTBOX_PATH = '/__outbox/bookmarks';
+const KEEP = [STATIC_CACHE, PAGES_CACHE, API_CACHE, OUTBOX_CACHE];
+
 const OFFLINE_PAGE = '/offline.html';
+const API_TIMEOUT_MS = 6000;
+const API_CACHE_MAX = 200;
+
+const API_ORIGIN = (() => {
+  try {
+    const api = new URL(self.location.href).searchParams.get('api');
+    return api ? new URL(api).origin : self.location.origin;
+  } catch {
+    return self.location.origin;
+  }
+})();
+
+// Read-only payloads worth having offline. Bookmarks (user data), health and feed config never are.
+const CACHEABLE_API = /^\/api\/(feed|articles|timeline|topics|trending|breaking|summaries|events)(\/|$)/;
 
 // cache.addAll is atomic: every URL here must exist in the static export (trailingSlash: true).
-const ASSETS_TO_CACHE = [
-  '/',
-  '/search/',
-  '/story/',
-  '/topics/',
-  '/bookmarks/',
-  '/live/',
-  '/settings/',
-  '/manifest.json',
-  '/icon-192x192.png',
-];
+const PRECACHE_PAGES = ['/', '/search/', '/story/', '/topics/', '/bookmarks/', '/live/', '/settings/', OFFLINE_PAGE];
+const PRECACHE_STATIC = ['/manifest.json', '/icon-192x192.png', '/icon-512x512.png'];
 
-// Install event: cache essential assets
 self.addEventListener('install', (event) => {
-  console.log('[ServiceWorker] Installing...');
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker] Caching essential assets');
-      return cache.addAll(ASSETS_TO_CACHE).catch((error) => {
-        console.warn('[ServiceWorker] Failed to cache some assets:', error);
-      });
-    })
+    Promise.all([
+      caches.open(PAGES_CACHE).then((c) => c.addAll(PRECACHE_PAGES)),
+      caches.open(STATIC_CACHE).then((c) => c.addAll(PRECACHE_STATIC)),
+    ]).catch((error) => console.warn('[ServiceWorker] Precache incomplete:', error))
   );
   self.skipWaiting();
 });
 
-// Activate event: clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('[ServiceWorker] Activating...');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME && cacheName !== API_CACHE) {
-            console.log('[ServiceWorker] Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    caches
+      .keys()
+      .then((names) => Promise.all(names.filter((n) => !KEEP.includes(n)).map((n) => caches.delete(n))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch event: network-first strategy for API, cache-first for assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
+  if (url.origin === API_ORIGIN && url.pathname.startsWith('/api/')) {
+    if (CACHEABLE_API.test(url.pathname)) event.respondWith(networkFirstApi(request));
+    return; // other API calls go straight to the network, never cached
+  }
+
+  if (url.origin !== self.location.origin) return; // cross-origin images, fonts CDNs, etc.
+
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirstPage(request));
     return;
   }
 
-  // API requests: network-first with cache fallback
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache successful API responses
-          if (response && response.status === 200) {
-            const clonedResponse = response.clone();
-            caches.open(API_CACHE).then((cache) => {
-              cache.put(request, clonedResponse);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          // Return cached API response if network fails
-          return caches.match(request).then((response) => {
-            return response || createOfflineResponse('API unavailable offline');
-          });
-        })
-    );
-    return;
+  // Content-hashed build output and fixed assets never change under the same URL.
+  if (
+    url.pathname.startsWith('/_next/static/') ||
+    /\.(?:woff2?|png|svg|ico|webmanifest)$/.test(url.pathname) ||
+    url.pathname === '/manifest.json'
+  ) {
+    event.respondWith(cacheFirst(request, STATIC_CACHE));
   }
-
-  // Asset requests: cache-first, fallback to network
-  event.respondWith(
-    caches.match(request).then((response) => {
-      if (response) {
-        return response;
-      }
-      return fetch(request)
-        .then((response) => {
-          // Cache successful responses
-          if (!response || response.status !== 200 || response.type === 'error') {
-            return response;
-          }
-          const clonedResponse = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clonedResponse);
-          });
-          return response;
-        })
-        .catch(() => {
-          // Return offline page for navigation requests
-          if (request.mode === 'navigate') {
-            return caches.match(OFFLINE_PAGE).then((response) => {
-              return response || createOfflineResponse('Page unavailable offline');
-            });
-          }
-          return createOfflineResponse('Resource unavailable');
-        });
-    })
-  );
 });
 
-// Background sync: sync bookmarks when back online
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-bookmarks') {
-    event.waitUntil(syncBookmarks());
+/** Pages: always try the network so a deploy shows up at once; offline → cached copy → offline page. */
+async function networkFirstPage(request) {
+  const cache = await caches.open(PAGES_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response.ok) void cache.put(request, response.clone());
+    return response;
+  } catch {
+    return (
+      (await cache.match(request, { ignoreSearch: true })) ||
+      (await cache.match(OFFLINE_PAGE)) ||
+      new Response('You are offline.', { status: 503, headers: { 'Content-Type': 'text/plain' } })
+    );
   }
+}
+
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const response = await fetch(request);
+  if (response.ok) void cache.put(request, response.clone());
+  return response;
+}
+
+/** API: network first (with a timeout for flaky mobile networks), then the last good copy. */
+async function networkFirstApi(request) {
+  const cache = await caches.open(API_CACHE);
+  try {
+    const response = await withTimeout(fetch(request), API_TIMEOUT_MS);
+    if (response.status === 200) {
+      await cache.put(request, response.clone());
+      void trimCache(cache, API_CACHE_MAX);
+    }
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw error; // let the app see a network error and use its own fallback
+  }
+}
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+/** Cache keys come back in insertion order; re-put moves an entry to the end, so this drops the oldest. */
+async function trimCache(cache, max) {
+  const keys = await cache.keys();
+  await Promise.all(keys.slice(0, Math.max(0, keys.length - max)).map((k) => cache.delete(k)));
+}
+
+// Background Sync (Chromium): send the queued bookmark set even if the page has been closed.
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-bookmarks') event.waitUntil(syncBookmarks());
 });
 
 async function syncBookmarks() {
-  try {
-    const cache = await caches.open(API_CACHE);
-    const response = await fetch('/api/bookmarks');
-    if (response.ok) {
-      await cache.put('/api/bookmarks', response);
-      return response;
-    }
-  } catch (error) {
-    console.error('[ServiceWorker] Bookmark sync failed:', error);
+  const cache = await caches.open(OUTBOX_CACHE);
+  const entry = await cache.match(OUTBOX_PATH);
+  if (!entry) return;
+  const { url, body } = await entry.json();
+  if (new URL(url).origin !== API_ORIGIN) return; // only ever talk to our own API
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.status >= 500) throw new Error(`bookmark sync failed: ${response.status}`); // browser retries
+  // Only remove what we sent: the page may have queued a newer set meanwhile.
+  const current = await cache.match(OUTBOX_PATH);
+  if (current && JSON.stringify((await current.json()).body) === JSON.stringify(body)) {
+    await cache.delete(OUTBOX_PATH);
+  }
+  if (response.ok) {
+    const windows = await self.clients.matchAll({ type: 'window' });
+    for (const client of windows) client.postMessage({ type: 'bookmarks-synced', articleIds: body.articleIds });
   }
 }
 
@@ -148,9 +181,7 @@ self.addEventListener('push', (event) => {
     requireInteraction: false,
   };
 
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'News Timeline', options)
-  );
+  event.waitUntil(self.registration.showNotification(data.title || 'News Timeline', options));
 });
 
 // Notification click: open the app
@@ -169,49 +200,3 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
-
-// Helper: create offline response
-function createOfflineResponse(message) {
-  return new Response(
-    `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Offline - News Timeline</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            background: #0a0a0b;
-            color: #f0ede8;
-          }
-          .container {
-            text-align: center;
-            padding: 20px;
-          }
-          h1 { margin: 0 0 10px 0; }
-          p { margin: 0; opacity: 0.7; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>📡 You're Offline</h1>
-          <p>${message}</p>
-          <p style="margin-top: 20px; font-size: 14px;">Check your connection and try again</p>
-        </div>
-      </body>
-    </html>
-    `,
-    {
-      status: 503,
-      statusText: 'Service Unavailable',
-      headers: new Headers({ 'Content-Type': 'text/html; charset=utf-8' }),
-    }
-  );
-}

@@ -32,6 +32,10 @@ function localMatches(q: string, pool: FeedArticle[]) {
  * The core product view: everything known about a story, from its first report to now.
  * Reads oldest → newest; buckets by day, or by month once the story spans > ~6 weeks.
  */
+/** BigQuery backfill (ADR-008 step 5) usually takes 10–60 s; poll for up to ~2 minutes. */
+const BACKFILL_POLL_MS = 15_000;
+const BACKFILL_MAX_POLLS = 8;
+
 export default function StoryTimeline({ query, category }: { query: string; category?: string }) {
   const { rememberArticles, articles: feedArticles, savedArticles } = useFeed();
   const { togglePinnedItem, isPinnedItem } = useNews();
@@ -40,6 +44,7 @@ export default function StoryTimeline({ query, category }: { query: string; cate
   const [status, setStatus] = useState<'loading' | 'ready' | 'offline' | 'degraded' | 'error'>('loading');
   const [errorBody, setErrorBody] = useState('Check your connection and try again.');
   const [attempt, setAttempt] = useState(0);
+  const [backfill, setBackfill] = useState<'pending' | 'done' | 'unavailable'>('unavailable');
 
   useEffect(() => {
     if (!query) return;
@@ -50,6 +55,7 @@ export default function StoryTimeline({ query, category }: { query: string; cate
       .then((res) => {
         setItems(res.items);
         rememberArticles(res.items);
+        setBackfill(res.backfill ?? 'unavailable');
         if (!res.degraded) setStatus('ready');
         else if (res.items.length > 0) setStatus('degraded');
         else {
@@ -78,9 +84,38 @@ export default function StoryTimeline({ query, category }: { query: string; cate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, category, attempt, rememberArticles]);
 
+  // Older coverage is fetched from BigQuery in the background: re-read the timeline until it lands.
+  useEffect(() => {
+    if (!query || backfill !== 'pending') return;
+    const controller = new AbortController();
+    let polls = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = () => {
+      getStoryTimeline(query, category, controller.signal)
+        .then((res) => {
+          const state = res.backfill ?? 'unavailable';
+          if (state !== 'pending' || ++polls >= BACKFILL_MAX_POLLS) {
+            setItems(res.items);
+            rememberArticles(res.items);
+            setBackfill(state === 'pending' ? 'unavailable' : state);
+          } else timer = setTimeout(poll, BACKFILL_POLL_MS);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setBackfill('unavailable');
+        });
+    };
+    timer = setTimeout(poll, BACKFILL_POLL_MS);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [query, category, backfill, rememberArticles]);
+
   const granularity = useMemo(() => pickGranularity(items), [items]);
   const groups = useMemo(() => groupByPeriod(items, granularity, 'asc'), [items, granularity]);
-  const sources = useMemo(() => new Set(items.map((a) => a.source)).size, [items]);
+  const reports = useMemo(() => items.filter((a) => a.kind !== 'milestone'), [items]);
+  const milestones = items.length - reports.length;
+  const sources = useMemo(() => new Set(reports.map((a) => a.source)).size, [reports]);
   const first = groups[0]?.items[0];
 
   const pinned = isPinnedItem('search', query);
@@ -106,7 +141,9 @@ export default function StoryTimeline({ query, category }: { query: string; cate
     status === 'loading'
       ? 'Tracing the story back to its first report…'
       : first
-        ? `Started ${formatLong(first.publishedAt)} · ${items.length} reports · ${sources} sources`
+        ? `Started ${formatLong(first.publishedAt)} · ${reports.length} reports · ${sources} sources${
+            milestones ? ` · ${milestones} milestones` : ''
+          }`
         : undefined;
 
   return (
@@ -147,8 +184,13 @@ export default function StoryTimeline({ query, category }: { query: string; cate
         ) : (
           <>
             {/* Only after the timeline loaded: that request is what starts writing the brief. */}
-            {status !== 'offline' && <StoryBrief query={query} category={category} />}
+            {status !== 'offline' && <StoryBrief query={query} category={category} items={items} />}
             <TimelineList groups={groups} stamp="date" />
+            {backfill === 'pending' && (
+              <p className="px-4 pb-2 text-center font-mono text-[11px] text-muted" role="status">
+                Searching older coverage…
+              </p>
+            )}
             <p className="px-4 pb-6 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
               — Latest as of {formatLong(new Date().toISOString())} —
             </p>

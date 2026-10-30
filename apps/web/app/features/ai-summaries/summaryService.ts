@@ -1,21 +1,17 @@
 'use client';
 
-import axios from 'axios';
+import { api } from '@/app/lib/api-client';
 import { TopicSummary, SummaryRequest } from './types';
 
-const summaryClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
-  timeout: 10000,
-});
-
+// Uses the shared API client: NEXT_PUBLIC_API_URL already ends in /api, so paths here must not repeat it.
 export async function generateTopicSummary(request: SummaryRequest): Promise<TopicSummary> {
-  const response = await summaryClient.post('/api/summaries/generate', request);
+  const response = await api.post('/summaries/generate', request);
   return response.data;
 }
 
 export async function getSummaryCached(topicName: string): Promise<TopicSummary | null> {
   try {
-    const response = await summaryClient.get(`/api/summaries/${encodeURIComponent(topicName)}`);
+    const response = await api.get(`/summaries/${encodeURIComponent(topicName)}`);
     return response.data;
   } catch {
     return null;
@@ -23,7 +19,7 @@ export async function getSummaryCached(topicName: string): Promise<TopicSummary 
 }
 
 export async function listTopicSummaries(): Promise<TopicSummary[]> {
-  const response = await summaryClient.get('/api/summaries');
+  const response = await api.get('/summaries');
   return response.data;
 }
 

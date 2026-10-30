@@ -1,15 +1,51 @@
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, WebSocketGateway } from '@nestjs/websockets';
 import type { IncomingMessage } from 'http';
 import type { RawData, WebSocket } from 'ws';
+import { isAllowedOrigin } from '../cors';
 
+/** Clients that miss one heartbeat round (no pong) are dropped — mobile networks leave half-open sockets. */
+export const HEARTBEAT_MS = 30_000;
+
+/** Close code for a rejected Origin (RFC 6455 "policy violation"). */
+export const POLICY_VIOLATION = 1008;
+
+/**
+ * Live event updates (ADR-005). Clients live in memory per instance; updates reach every instance through
+ * the `EventBus` (Redis when `REDIS_URL` is set), which calls `broadcast` here.
+ */
 @WebSocketGateway({ path: '/ws/events' })
-export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EventsGateway.name);
   private readonly clients = new Set<WebSocket>();
+  private readonly alive = new WeakMap<WebSocket, boolean>();
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
 
-  handleConnection(client: WebSocket, _req: IncomingMessage) {
+  onModuleInit() {
+    this.heartbeat = setInterval(() => this.sweep(), HEARTBEAT_MS);
+    this.heartbeat.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
+  }
+
+  get size() {
+    return this.clients.size;
+  }
+
+  handleConnection(client: WebSocket, req?: IncomingMessage) {
+    // Browsers always send Origin; native clients and curl don't, and aren't a CSRF-style risk.
+    const origin = req?.headers?.origin;
+    if (origin && !isAllowedOrigin(origin)) {
+      this.logger.warn(`ws rejected origin ${origin}`);
+      client.close(POLICY_VIOLATION, 'origin not allowed');
+      return;
+    }
     this.clients.add(client);
+    this.alive.set(client, true);
+    client.on('pong', () => this.alive.set(client, true));
     client.send(
       JSON.stringify({
         type: 'ping',
@@ -24,6 +60,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: WebSocket) {
     this.clients.delete(client);
+  }
+
+  /** One heartbeat round: drop clients that didn't answer the previous ping, ping the rest. */
+  sweep() {
+    for (const client of this.clients) {
+      if (!this.alive.get(client)) {
+        this.clients.delete(client);
+        client.terminate();
+        continue;
+      }
+      this.alive.set(client, false);
+      client.ping();
+    }
   }
 
   broadcast(payload: unknown) {

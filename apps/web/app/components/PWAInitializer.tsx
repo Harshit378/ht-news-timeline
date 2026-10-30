@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { isNative } from '@/app/lib/native';
+import { API_BASE_URL } from '@/app/lib/api-client';
 
 export function PWAInitializer() {
   useEffect(() => {
@@ -16,8 +17,10 @@ export function PWAInitializer() {
     }
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       const register = () => {
+        // The worker only treats this origin's /api/* as API (network-first + offline cache).
+        const apiOrigin = new URL(API_BASE_URL, window.location.href).origin;
         navigator.serviceWorker
-          .register('/sw.js', { scope: '/' })
+          .register(`/sw.js?api=${encodeURIComponent(apiOrigin)}`, { scope: '/' })
           .then((registration) => {
             console.log('[PWA] Service Worker registered:', registration);
 

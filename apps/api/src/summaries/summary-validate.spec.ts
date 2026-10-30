@@ -32,3 +32,31 @@ describe('validateSummary', () => {
     expect(validateSummary({ ...good, keyPoints: 'not a list' })).toBeNull();
   });
 });
+
+describe('validateComparison (via validateSummary)', () => {
+  const base = { summary: 'x'.repeat(60), keyPoints: ['one point', 'two point'], sentiment: 'neutral', relatedTopics: [] };
+
+  it('keeps themes and differences that name real sources, matching case-insensitively', () => {
+    const out = validateSummary(
+      {
+        ...base,
+        commonThemes: ['  Final score ', 'Injury report'],
+        differences: [
+          { source: 'bbc', point: 'Only BBC mentions the attendance record.' },
+          { source: 'Made Up Times', point: 'This outlet does not exist in the input.' },
+          { source: 'ESPN', point: 'short' },
+        ],
+      },
+      ['BBC', 'ESPN'],
+    );
+    expect(out?.comparison).toEqual({
+      commonThemes: ['Final score', 'Injury report'],
+      differences: [{ source: 'BBC', point: 'Only BBC mentions the attendance record.' }],
+    });
+  });
+
+  it('omits the comparison when nothing usable is left, and ignores it when not asked', () => {
+    expect(validateSummary({ ...base, commonThemes: [], differences: [] }, ['BBC'])?.comparison).toBeUndefined();
+    expect(validateSummary({ ...base, commonThemes: ['Final score'] })?.comparison).toBeUndefined();
+  });
+});

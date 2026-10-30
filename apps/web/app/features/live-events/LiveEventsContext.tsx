@@ -1,97 +1,97 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState, ReactNode } from 'react';
-import { LiveEventTimeline, LiveEvent } from './types';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { getLiveEvents, wsUrl } from '@/app/lib/api-client';
+import { LiveEventTimeline } from './types';
+import { applyUpdate, isUpdatePayload, parseMessage } from './liveEvents';
+import { useWebSocket } from './useWebSocket';
+
+/** Last good event list, shown while offline or until the API answers (ADR-005 fallback). */
+const CACHE_KEY = 'ht_timeline_live_v1';
 
 interface LiveEventsContextType {
-  activeTimeline: LiveEventTimeline | null;
-  setActiveTimeline: (timeline: LiveEventTimeline) => void;
   timelines: LiveEventTimeline[];
-  setTimelines: (timelines: LiveEventTimeline[]) => void;
-  updateLiveEvent: (timelineId: string, event: LiveEvent) => void;
-  isLive: boolean;
-  setIsLive: (live: boolean) => void;
+  loading: boolean;
+  /** True when the list on screen came from the local cache because the API was unreachable. */
+  fromCache: boolean;
+  /** Ids of updates that arrived over the socket in this session (for highlighting). */
+  freshIds: Set<string>;
+  refresh: () => Promise<void>;
+  receive: (raw: string) => void;
 }
 
 const LiveEventsContext = createContext<LiveEventsContextType | undefined>(undefined);
 
-const MOCK_TIMELINES: LiveEventTimeline[] = [
-  {
-    id: 'election-2024',
-    name: 'US Election 2024',
-    slug: 'election-2024',
-    description: 'Real-time coverage of the 2024 US Presidential Election',
-    category: 'election',
-    status: 'completed',
-    startDate: '2024-11-05T00:00:00Z',
-    endDate: '2024-11-06T10:00:00Z',
-    events: [],
-    lastUpdated: new Date().toISOString(),
-  },
-  {
-    id: 'super-bowl-2024',
-    name: 'Super Bowl LVIII',
-    slug: 'super-bowl-2024',
-    description: 'Live coverage of Super Bowl LVIII',
-    category: 'sports',
-    status: 'completed',
-    startDate: '2024-02-11T23:30:00Z',
-    endDate: '2024-02-12T03:30:00Z',
-    events: [],
-    lastUpdated: new Date().toISOString(),
-  },
-  {
-    id: 'g7-summit-2024',
-    name: 'G7 Summit 2024',
-    slug: 'g7-summit-2024',
-    description: 'Live updates from the G7 Summit',
-    category: 'summit',
-    status: 'ongoing',
-    startDate: '2024-06-13T08:00:00Z',
-    events: [],
-    lastUpdated: new Date().toISOString(),
-  },
-];
+function readCache(): LiveEventTimeline[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? (parsed as LiveEventTimeline[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCache(timelines: LiveEventTimeline[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(timelines));
+  } catch {
+    // Storage full or unavailable — non-fatal.
+  }
+}
 
 export function LiveEventsProvider({ children }: { children: ReactNode }) {
-  const [activeTimeline, setActiveTimeline] = useState<LiveEventTimeline | null>(null);
-  const [timelines, setTimelines] = useState<LiveEventTimeline[]>(MOCK_TIMELINES);
-  const [isLive, setIsLive] = useState(false);
+  const [timelines, setTimelines] = useState<LiveEventTimeline[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fromCache, setFromCache] = useState(false);
+  const [freshIds, setFreshIds] = useState<Set<string>>(() => new Set());
 
-  const updateLiveEvent = useCallback(
-    (timelineId: string, event: LiveEvent) => {
-      setTimelines((prevTimelines) =>
-        prevTimelines.map((timeline) => {
-          if (timeline.id === timelineId) {
-            const existingEventIndex = timeline.events.findIndex((e) => e.id === event.id);
-            const updatedEvents =
-              existingEventIndex >= 0
-                ? timeline.events.map((e, i) => (i === existingEventIndex ? event : e))
-                : [event, ...timeline.events];
+  const refresh = useCallback(async () => {
+    try {
+      const list = await getLiveEvents();
+      setTimelines(list);
+      setFromCache(false);
+    } catch {
+      const cached = readCache();
+      if (cached.length) {
+        setTimelines((current) => (current.length ? current : cached));
+        setFromCache(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-            return {
-              ...timeline,
-              events: updatedEvents,
-              lastUpdated: new Date().toISOString(),
-            };
-          }
-          return timeline;
-        })
-      );
+  useEffect(() => {
+    const cached = readCache();
+    if (cached.length) setTimelines(cached);
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!loading && !fromCache) writeCache(timelines);
+  }, [timelines, loading, fromCache]);
+
+  const timelinesRef = useRef(timelines);
+  timelinesRef.current = timelines;
+
+  const receive = useCallback(
+    (raw: string) => {
+      const msg = parseMessage(raw);
+      if (msg?.type !== 'update' || !isUpdatePayload(msg.data)) return;
+      const payload = msg.data;
+      if (!timelinesRef.current.some((t) => t.id === payload.eventId)) {
+        void refresh();
+        return;
+      }
+      setTimelines((current) => applyUpdate(current, payload).timelines);
+      setFreshIds((ids) => new Set(ids).add(payload.update.id));
     },
-    []
+    [refresh],
   );
 
-  const value: LiveEventsContextType = {
-    activeTimeline,
-    setActiveTimeline,
-    timelines,
-    setTimelines,
-    updateLiveEvent,
-    isLive,
-    setIsLive,
-  };
-
+  const value: LiveEventsContextType = { timelines, loading, fromCache, freshIds, refresh, receive };
   return <LiveEventsContext.Provider value={value}>{children}</LiveEventsContext.Provider>;
 }
 
@@ -99,4 +99,14 @@ export function useLiveEvents() {
   const ctx = useContext(LiveEventsContext);
   if (!ctx) throw new Error('useLiveEvents must be used within LiveEventsProvider');
   return ctx;
+}
+
+/**
+ * Opens the live socket while the calling component is mounted (only /live needs it).
+ * Every (re)open refetches the list, so updates missed while disconnected show up.
+ */
+export function useLiveConnection() {
+  const { receive, refresh } = useLiveEvents();
+  const onOpen = useCallback(() => void refresh(), [refresh]);
+  return useWebSocket(wsUrl(), { onMessage: receive, onOpen });
 }

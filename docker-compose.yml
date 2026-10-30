@@ -11,5 +11,13 @@ services:
     volumes:
       - timeline_pg:/var/lib/postgresql/data
 
+  # Only needed when running more than one API instance (ADR-005 fan-out): docker compose --profile scale up -d
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ["scale"]
+    ports:
+      - "6379:6379"
+
 volumes:
   timeline_pg:

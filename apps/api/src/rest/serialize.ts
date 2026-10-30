@@ -35,5 +35,6 @@ export function serializeArticle(a: ArticleRecord) {
     bias: a.bias,
     importance: a.importance,
     storyClusterId: a.storyClusterId,
+    kind: a.kind ?? 'report',
   };
 }

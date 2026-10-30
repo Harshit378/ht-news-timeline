@@ -1,6 +1,7 @@
 import { BadRequestException, Controller, Get, Logger, Query } from '@nestjs/common';
 import { sanitizeStoryQuery } from '../ingestion/gdelt-doc.service';
 import { NewsSearchService } from '../ingestion/news-search.service';
+import { StoryBackfillService } from '../ingestion/story-backfill.service';
 import { StoryBriefService } from '../summaries/story-brief.service';
 import { NewsStore } from '../store/news.store';
 import { ArticleRecord } from '../store/types';
@@ -67,6 +68,7 @@ export class TimelineController {
     private readonly store: NewsStore,
     private readonly search: NewsSearchService,
     private readonly briefs: StoryBriefService,
+    private readonly backfill: StoryBackfillService,
   ) {}
 
   /** GET /api/timeline/brief?q=&category= — the AI "What happened" brief, once it has been written. */
@@ -92,10 +94,21 @@ export class TimelineController {
       this.logger.warn(`brief "${query}" not started: ${err instanceof Error ? err.message : err}`);
     }
 
+    // Deep history from BigQuery, also in the background; the client polls while it is pending.
+    let backfill: string = 'unavailable';
+    try {
+      const earliestReport = items.find((a) => a.kind !== 'milestone')?.publishedAt;
+      backfill = (await this.backfill.ensure(key, query, category, earliestReport, () => this.cache.delete(key))).state;
+    } catch (err) {
+      this.logger.warn(`backfill "${query}" not started: ${err instanceof Error ? err.message : err}`);
+    }
+
     return {
       query,
       /** True when a provider couldn't be reached; items are then partial (stale cache / archive). */
       degraded,
+      /** BigQuery history: pending (poll again), done, or unavailable (not configured / failed). */
+      backfill,
       firstSeen: items[0]?.publishedAt.toISOString() ?? null,
       lastSeen: items[items.length - 1]?.publishedAt.toISOString() ?? null,
       items: items.map(serializeArticle),
