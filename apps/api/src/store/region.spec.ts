@@ -57,4 +57,25 @@ describe('FeedController region', () => {
     await ctrl.getFeed(undefined, '1', 'india');
     expect(store.listArticles).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ region: null }));
   });
+
+  it('resolves coarse region from edge headers when query is auto or missing', async () => {
+    const store = { listArticles: vi.fn(async () => []) };
+    const ctrl = new FeedController(store as never);
+
+    // Cloudflare cf-ipcountry
+    await ctrl.getFeed(undefined, '1', 'auto', { 'cf-ipcountry': 'IN' });
+    expect(store.listArticles).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ region: 'IN' }));
+
+    // Vercel x-vercel-ip-country
+    await ctrl.getFeed(undefined, '1', undefined, { 'x-vercel-ip-country': 'GB' });
+    expect(store.listArticles).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ region: 'GB' }));
+
+    // Accept-Language fallback
+    await ctrl.getFeed(undefined, '1', undefined, { 'accept-language': 'en-US,en;q=0.9' });
+    expect(store.listArticles).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ region: 'US' }));
+
+    // Explicit 'off' ignores headers
+    await ctrl.getFeed(undefined, '1', 'off', { 'cf-ipcountry': 'IN' });
+    expect(store.listArticles).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ region: null }));
+  });
 });

@@ -18,20 +18,22 @@ API: `EXPO_PUBLIC_API_URL` (must end in `/api`, see `.env.example`). Defaults to
 
 Add native libraries with `npx expo install <pkg>` so versions match the SDK.
 
-## What's here (first slice)
+## What's here (all 6 core destinations)
 
 | Screen | |
 | :--- | :--- |
-| Home | Feed grouped by day on a `SectionList` (sticky day headers), pull to refresh, infinite scroll, last feed cached for offline starts |
+| Home | Feed grouped by day on a `SectionList` (sticky day headers), pull to refresh, infinite scroll, native sponsor cards for Free readers, last feed cached for offline starts |
 | Search → Story | Story timeline from first report to now, Wikipedia milestones, AI brief when ready |
-| Article | Headline, excerpt, Save, "Open original" in an in-app browser |
+| Topics | 10-category visual grid (`CORE_TOPICS`), live article counts, tap opens category story timeline |
 | Saved | Snapshots in SQLite (`expo-sqlite/kv-store`), backed up per device with the shared `BookmarkSync`; flushes on network back (NetInfo) and app foreground (AppState) |
+| Live | Real-time live event streaming with WebSocket, exponential backoff (5 retries), AppState-aware lifecycle, and cached offline fallback |
+| Settings | Appearance (theme toggle), Region boost selector, Subscription tier upgrade actions, and API diagnostics |
+| Article | Headline, excerpt, Save, "Open original" in an in-app browser |
 
 Bundle id / package: `com.htimeline.mobile`, so it installs next to the Capacitor app (`com.htimeline.app`).
 
 ## Next steps
 
-- Live tab (shared `live-events-reducer` + `backoff` with an AppState-aware socket), Topics, Settings (region, theme)
 - NativeWind styling once a stable NativeWind release supports SDK 58 (4.2.7 supports SDK 57); today it's `StyleSheet` with the web tokens in `src/theme.ts`
 - Bundle Playfair Display / IBM Plex with `expo-font`
 - Store builds with EAS (`npx eas-cli@latest build`)

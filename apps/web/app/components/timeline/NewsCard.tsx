@@ -51,12 +51,18 @@ export default function NewsCard({
               <span className="max-w-[45%] truncate font-mono text-[10px] uppercase tracking-wide text-muted">
                 {article.source}
               </span>
-              <span
-                className="rounded border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide"
-                style={categoryTagStyle(article.category)}
-              >
-                {article.category}
-              </span>
+              {article.kind === 'sponsored' ? (
+                <span className="rounded border border-gold/40 bg-gold/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-gold">
+                  Sponsored
+                </span>
+              ) : (
+                <span
+                  className="rounded border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide"
+                  style={categoryTagStyle(article.category)}
+                >
+                  {article.category}
+                </span>
+              )}
             </div>
             <h3
               className={`font-serif text-[17px] font-bold leading-snug ${

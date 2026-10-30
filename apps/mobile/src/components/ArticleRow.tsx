@@ -14,6 +14,7 @@ function time(iso: string, stamp: 'time' | 'date') {
 /** One report on the timeline rail; Wikipedia milestones (ADR-008) get the gold diamond. */
 export function ArticleRow({ article, stamp = 'time' }: { article: FeedArticle; stamp?: 'time' | 'date' }) {
   const milestone = article.kind === 'milestone';
+  const sponsored = article.kind === 'sponsored';
   return (
     <Pressable
       onPress={() => router.push({ pathname: '/article/[id]', params: { id: article.id } })}
@@ -22,12 +23,23 @@ export function ArticleRow({ article, stamp = 'time' }: { article: FeedArticle; 
       accessibilityLabel={article.title}
     >
       <View style={styles.rail}>
-        <View style={[styles.dot, milestone && styles.diamond, article.isBreaking && styles.breaking]} />
+        <View
+          style={[
+            styles.dot,
+            milestone && styles.diamond,
+            sponsored && styles.sponsoredDot,
+            article.isBreaking && styles.breaking,
+          ]}
+        />
       </View>
-      <View style={[styles.card, milestone && styles.milestoneCard]}>
-        <Text style={styles.meta}>
-          {milestone ? 'MILESTONE · WIKIPEDIA' : `${time(article.publishedAt, stamp)} · ${article.source.toUpperCase()}`}
-          {!milestone && article.category ? `  ${CATEGORY_EMOJI[article.category] ?? ''}` : ''}
+      <View style={[styles.card, milestone && styles.milestoneCard, sponsored && styles.sponsoredCard]}>
+        <Text style={[styles.meta, sponsored && styles.sponsoredMeta]}>
+          {milestone
+            ? 'MILESTONE · WIKIPEDIA'
+            : sponsored
+              ? 'SPONSORED'
+              : `${time(article.publishedAt, stamp)} · ${article.source.toUpperCase()}`}
+          {!milestone && !sponsored && article.category ? `  ${CATEGORY_EMOJI[article.category] ?? ''}` : ''}
         </Text>
         <Text style={milestone ? styles.milestoneText : styles.title} numberOfLines={milestone ? 4 : 3}>
           {article.title}
@@ -43,6 +55,7 @@ const styles = StyleSheet.create({
   rail: { width: 14, alignItems: 'center', paddingTop: 6 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.dim },
   diamond: { borderRadius: 0, backgroundColor: colors.gold, transform: [{ rotate: '45deg' }] },
+  sponsoredDot: { backgroundColor: colors.gold, borderRadius: 2 },
   breaking: { backgroundColor: colors.accent },
   card: {
     flex: 1,
@@ -53,7 +66,9 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   milestoneCard: { backgroundColor: colors.surface, borderColor: colors.gold },
+  sponsoredCard: { backgroundColor: colors.surface, borderColor: colors.gold },
   meta: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 0.8, color: colors.gold, marginBottom: 4 },
+  sponsoredMeta: { color: colors.gold, fontWeight: '700' },
   title: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 22, fontWeight: '700', color: colors.ink },
   milestoneText: { fontSize: 14, lineHeight: 20, color: colors.ink },
 });

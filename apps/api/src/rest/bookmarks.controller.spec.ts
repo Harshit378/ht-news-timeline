@@ -9,6 +9,7 @@ describe('parseUserId', () => {
     expect(parseUserId(DEVICE)).toBe(DEVICE);
     expect(parseUserId(DEVICE.toUpperCase())).toBe(DEVICE);
     expect(parseUserId('local')).toBe('local');
+    expect(parseUserId('usr_abc123xyz')).toBe('usr_abc123xyz');
     expect(parseUserId(undefined)).toBe('local');
   });
 

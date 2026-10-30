@@ -14,6 +14,57 @@ export function parseRegion(raw: unknown): string | null {
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
+/**
+ * Resolves user region using the ADR-009 fallback order:
+ * 1. Explicit query parameter ('IN', 'GB', etc.; 'off' explicitly clears)
+ * 2. Edge reverse-proxy coarse IP country headers (Cloudflare, Vercel, CloudFront, etc.)
+ * 3. Accept-Language header country tag (e.g. 'en-IN,en;q=0.9')
+ */
+export function extractCoarseRegion(
+  headers: Record<string, string | string[] | undefined>,
+  queryRegion?: string,
+): string | null {
+  if (queryRegion) {
+    const trimmed = queryRegion.trim().toLowerCase();
+    if (trimmed === 'off' || trimmed === 'none') return null;
+    if (trimmed !== 'auto') {
+      const parsed = parseRegion(queryRegion);
+      if (parsed) return parsed;
+    }
+  }
+
+  // Edge geo headers (coarse country level only, no IP storage - ADR-009)
+  const headerKeys = [
+    'cf-ipcountry',
+    'x-country-code',
+    'x-vercel-ip-country',
+    'cloudfront-viewer-country',
+    'x-geo-country',
+  ];
+
+  for (const key of headerKeys) {
+    const val = headers[key];
+    const candidate = Array.isArray(val) ? val[0] : val;
+    if (candidate) {
+      const parsed = parseRegion(candidate);
+      if (parsed && parsed !== 'XX' && parsed !== 'T1') return parsed;
+    }
+  }
+
+  // Accept-Language fallback
+  const acceptLang = headers['accept-language'];
+  const rawLang = Array.isArray(acceptLang) ? acceptLang[0] : acceptLang;
+  if (rawLang) {
+    // Matches e.g. en-US, hi-IN, en-GB
+    const match = rawLang.match(/[a-z]{2,3}-([A-Z]{2})/i);
+    if (match?.[1]) {
+      return parseRegion(match[1]);
+    }
+  }
+
+  return null;
+}
+
 /** GDELT `sourcecountry` names for the countries our feeds and readers cover; others stay unknown. */
 const GDELT_COUNTRIES: Record<string, string> = {
   'united states': 'US',

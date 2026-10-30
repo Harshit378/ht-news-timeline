@@ -85,10 +85,23 @@ export function deriveWsUrl(apiBase: string, override?: string): string {
 export interface HttpClient {
   get<T>(url: string, config?: { params?: Record<string, unknown>; signal?: AbortSignal; timeout?: number }): Promise<{ data: T }>;
   put(url: string, body?: unknown): Promise<unknown>;
+  post?<T = unknown>(url: string, body?: unknown): Promise<{ data: T }>;
 }
 
 export function createNewsApi(api: HttpClient) {
   return {
+    async createCheckoutSession(tier: 'PRO' | 'TEAM', successUrl?: string, cancelUrl?: string) {
+      if (!api.post) throw new Error('HttpClient does not support post');
+      const { data } = await api.post<{ sessionId: string; url: string; mode: string }>('/billing/checkout-session', { tier, successUrl, cancelUrl });
+      return data;
+    },
+
+    async createPortalSession(returnUrl?: string) {
+      if (!api.post) throw new Error('HttpClient does not support post');
+      const { data } = await api.post<{ url: string }>('/billing/portal-session', { returnUrl });
+      return data;
+    },
+
     async getFeed(page = 1, category?: ArticleCategory, region?: string): Promise<Paged<FeedArticle>> {
       const { data } = await api.get<Paged<FeedArticle>>('/feed', { params: { page, category, region } });
       return data;

@@ -47,4 +47,6 @@ export const {
   getTopics,
   getLiveEvents,
   putBookmarks,
+  createCheckoutSession,
+  createPortalSession,
 } = client;

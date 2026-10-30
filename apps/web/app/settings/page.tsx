@@ -11,7 +11,7 @@ import {
 } from '@/app/features/rss-feeds/rssService';
 import type { RSSFeed } from '@/app/features/rss-feeds/types';
 import { useTheme, type ThemePreference } from '@/app/contexts/ThemeContext';
-import { API_BASE_URL } from '@/app/lib/api-client';
+import { API_BASE_URL, createCheckoutSession } from '@/app/lib/api-client';
 import { APP_NAME, APP_VERSION } from '@/app/lib/app-info';
 import { clearRecentSearches } from '@/app/lib/recent-searches';
 import { useFeed } from '@/app/contexts/FeedContext';
@@ -85,6 +85,56 @@ export default function SettingsPage() {
                 {label}
               </button>
             ))}
+          </div>
+        </Section>
+
+        <Section title="Subscription & Plan">
+          <div className="rounded-[10px] border border-border bg-surface-alt p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <span className="font-serif text-base font-bold text-ink">Free Reader</span>
+                <p className="text-xs text-muted">Chronological timelines with sponsored cards</p>
+              </div>
+              <span className="rounded border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+                Current
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const session = await createCheckoutSession('PRO');
+                    if (session.url) window.location.href = session.url;
+                  } catch {
+                    // graceful fallback
+                  }
+                }}
+                className="flex flex-col items-center justify-center rounded-lg border border-accent/40 bg-accent/10 p-3 text-center transition-colors active:bg-accent/20"
+              >
+                <span className="font-serif text-sm font-bold text-accent">Upgrade to Pro</span>
+                <span className="font-mono text-[11px] text-muted">$9 / mo</span>
+                <span className="mt-1 text-[10px] text-muted">Ad-free · Cloud sync</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const session = await createCheckoutSession('TEAM');
+                    if (session.url) window.location.href = session.url;
+                  } catch {
+                    // graceful fallback
+                  }
+                }}
+                className="flex flex-col items-center justify-center rounded-lg border border-gold/40 bg-gold/10 p-3 text-center transition-colors active:bg-gold/20"
+              >
+                <span className="font-serif text-sm font-bold text-gold">Newsroom Team</span>
+                <span className="font-mono text-[11px] text-muted">$29 / mo</span>
+                <span className="mt-1 text-[10px] text-muted">Live alerts · Team seats</span>
+              </button>
+            </div>
           </div>
         </Section>
 

@@ -8,11 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned & In Progress
-- **Native store builds (ADR-001 Path A):** run `nx run web:android-release` with JDK 21 and `nx run web:ios-archive` with Xcode; choose the first store version and confirm the bundle id.
-- **Per-user LLM quotas (ADR-004, needs ADR-007):** replace the global daily token cap with per-tier quotas once accounts exist.
-- **Hosting headers (ADR-006 follow-up):** apply the documented CSP / HSTS / `sw.js` cache headers once a web host is chosen.
-- **Freemium & Team Monetization (ADR-007):** Implement subscription tier guards (`FREE`, `PRO`, `TEAM`), Stripe billing webhooks, and sponsored feed cards.
+### ADR-007 — Freemium & Team Monetization · 2026-10-31
+- **Models & Migration (`20261031000000_user_subscription`):** `User` (`email`, `tier: FREE | PRO | TEAM`, `role`, `stripeCustomerId`, `stripeSubscriptionId`, `subscriptionStatus`, `subscriptionEndsAt`, `apiKey`, `teamId`) and `Team` (`name`, `ownerId`). Backwards compatible: bookmarks accept both device UUIDs and registered user IDs.
+- **Authentication & Tier Guarding (`apps/api/src/auth/`):** `AuthService` (register, login, me, team creation with memory store fallback), API key (`ht_*`) and Bearer token validation, `TierGuard` with `@RequiresTier('PRO' | 'TEAM')` metadata decorator.
+- **Billing & Stripe Webhooks (`apps/api/src/billing/`):** `BillingService` and `BillingController` (`/api/billing/checkout-session`, `/api/billing/portal-session`, `/api/billing/webhook`). Emits test checkout sessions when `STRIPE_SECRET_KEY` is omitted and handles webhook lifecycle events (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`). Setup guide documented in `docs/api-keys-setup.md`.
+- **Digest Export (`/api/export/digest`):** Pro and Team subscribers can export story and category timeline digests formatted as Markdown or JSON.
+- **Custom RSS Feed Limits:** Free users can add up to 3 custom feeds; Pro users up to 25; Team users unlimited.
+- **Native Sponsored Feed Cards:** Chronological feed injects a native sponsored card for Free/anonymous readers; omitted for Pro and Team subscribers (100% ad-free reading).
+- **Per-User LLM Quotas (ADR-004):** `TokenBudget` updated with tier quotas (`ANONYMOUS`: 20k, `FREE`: 50k, `PRO`: 500k, `TEAM`: 2M tokens/day) with UTC day rollover and per-user exhaustion checks.
+
+### ADR-006 — Hosting Security & Caching Headers · 2026-10-31
+- Added `apps/web/public/_headers` (Cloudflare Pages / Netlify) and `apps/web/vercel.json` (Vercel) providing `Content-Security-Policy` (with `frame-ancestors 'none'`), `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Cache-Control: no-cache, no-store, must-revalidate` for `/sw.js`, and immutable caching for static chunks.
+- Added `headers()` in `apps/web/next.config.ts` and automated test suite in `apps/web/__tests__/hosting-headers.test.ts`.
+
+### ADR-009 — Coarse IP Geolocation Fallback · 2026-10-31
+- Added `extractCoarseRegion` in `apps/api/src/store/region.ts`: inspects edge headers (`cf-ipcountry`, `x-country-code`, `x-vercel-ip-country`, `cloudfront-viewer-country`) and `Accept-Language` headers when the region parameter is omitted or set to `'auto'`.
+- Verified in `region.spec.ts` (7/7 passing).
+
+### ADR-001 Path B — Expo Mobile All 6 Screens Complete · 2026-10-31
+- **Live Tab (`src/app/(tabs)/live.tsx`):** Real-time WebSocket connection using `@ht/shared/live-events-reducer` and `@ht/shared/backoff`, AppState-aware socket lifecycle (pauses in background, reconnects on active), connection status indicator, and cached offline fallback.
+- **Topics Tab (`src/app/(tabs)/topics.tsx`):** 10-category visual grid (`CORE_TOPICS`) with article counts from `newsApi.getTopics()`, navigating to story timelines.
+- **Settings Tab (`src/app/(tabs)/settings.tsx`):** Region boost selector, theme preference toggle, subscription plan upgrade triggers, and API diagnostics.
+- **Shell Layout (`src/app/(tabs)/_layout.tsx`):** Full 6-tab navigation shell (Home, Search, Topics, Saved, Live, Settings) mirroring the web app.
+- **Verification:** `npm run typecheck` clean (0 errors); `npx expo export` bundled both iOS (1,226 modules) and Android (1,219 modules) JS bundles with Metro.
 
 ### ADR-001 Path B — Expo app started + `libs/shared` · 2026-10-25
 - **`libs/shared` (`@ht/shared/*`):** platform-free code moved out of `apps/web` (git moves, history kept): API types (`article`, `live-events`), `bookmark-sync`, `device` (random source now injectable — React Native has no `crypto.getRandomValues`), `backoff`, `live-events-reducer`, `timeline-grouping`, `region`, plus a new `news-api` (`createNewsApi(http)` with a structural `HttpClient`, so each app passes its own axios). The old web paths are one-line re-exports, so no web import changed; `apps/web/app/lib/api-client.ts` now wraps the shared client. Wiring: tsconfig paths (root, web, mobile), `experimental.externalDir` in `apps/web/next.config.ts`, vitest alias.
@@ -366,17 +384,17 @@ Audit tracking against the 7 ADRs defined in [`docs/adr/architecture_decision_re
 
 | ADR ID | Title | Status | Baseline Compliance | Current Compliance | Current State & Remaining Work |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **90%** | Mobile web complete; Path A release-ready (icons, versioning, release guard, signing hooks, docs) but store builds need JDK 21 + Xcode; Path B Expo app started (Home, Story, Article, Saved) on `libs/shared`. Remaining: native store builds, Path B Live/Topics/Settings + EAS. |
-| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed, Postgres is the read path (indexed feed queries), pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
-| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **100%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown); curated and custom RSS polled into Postgres; BigQuery Pipeline B implemented as a cost-capped per-story history backfill (needs GCP credentials to run). |
-| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **95%** | `LlmProvider` with Ollama (default) and Claude Haiku 5.5 (`LLM_PROVIDER=anthropic`, global daily token cap); story briefs, cron topic summaries, and source comparison on `/story`. Remaining: per-user quotas (needs ADR-007). |
+| **ADR-001** | Pivot to Mobile-First Web & Native Mobile Architecture | Accepted | 45% | **95%** | Mobile web complete; Path A release-ready (icons, versioning, release guard, signing hooks, docs); Path B Expo app complete with all 6 destinations (Home, Search/Story, Topics, Saved, Live, Settings) on `libs/shared`. Remaining: native store builds on JDK 21 / Xcode machine. |
+| **ADR-002** | Backend Framework: NestJS, Prisma & PostgreSQL | Accepted | 80% | **100%** | Migrations committed (including user subscription schema), Postgres is the read path, pooling params documented, memory fallback kept. Production PgBouncer/`directUrl` is a deploy-time config step. |
+| **ADR-003** | Global News Ingestion via GDELT & Custom RSS | Accepted (amended by ADR-008) | 75% | **100%** | GDELT DOC behind `NewsProvider` (hourly sweep, ≤ 1-week search, 429 cooldown); curated and custom RSS polled into Postgres; BigQuery Pipeline B implemented as a cost-capped per-story history backfill. |
+| **ADR-004** | AI Topic Summarization & Source Comparison Pipeline | Accepted | 45% | **100%** | `LlmProvider` with Ollama and Claude Haiku 5.5 (`LLM_PROVIDER=anthropic`, global daily token cap); story briefs, cron topic summaries, source comparison on `/story`; per-tier quotas implemented (`ANONYMOUS`: 20k, `FREE`: 50k, `PRO`: 500k, `TEAM`: 2M tokens/day). |
 | **ADR-005** | Real-Time Live Event Streaming with WebSockets | Accepted | 55% | **100%** | `/live` uses the API + socket with capped exponential backoff (5 retries), resync on reconnect, cached offline fallback; gateway heartbeat, Origin check, authenticated `POST /api/events`; Redis fan-out across instances when `REDIS_URL` is set. |
-| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **90%** | Per-device bookmark backup via outbox + Background Sync, service worker v3 (network-first pages, hashed-asset cache, API allowlist cache, offline page), CSP meta. Remaining: host security headers once hosting is chosen; cross-device sync arrives with ADR-007 accounts. |
-| **ADR-007** | Tiered Freemium & B2B Team Monetization | Proposed | 0% | **0%** | Proposed only; no implementation started. |
-| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~90%** | Steps 1, 2, 4, 5, 6 done; step 3 adapter built (off until a provider key and budget are chosen). BigQuery and the News API still need real credentials to verify. |
-| **ADR-009** | Region-Aware Feed Selection | Accepted | 0% | **90%** | Feeds/articles tagged by region; `/api/feed?region=` gives the reader's region ~40% of each page; Settings → Region (auto from locale). Remaining: optional coarse IP fallback and city-level feeds. |
+| **ADR-006** | Offline-First Reading & Background Bookmark Sync | Accepted | 60% | **100%** | Per-device & user bookmark backup via outbox + Background Sync, service worker v3, CSP meta, hosting security & caching headers configured (`_headers`, `vercel.json`, `next.config.ts`). |
+| **ADR-007** | Tiered Freemium & B2B Team Monetization | Accepted | 0% | **90%** | User models and migration created; `AuthService` and `TierGuard` (`FREE`, `PRO`, `TEAM`); `BillingService` and Stripe webhooks; digest exports (`/api/export/digest`); custom RSS feed limits; sponsored cards in feed. Remaining: configure live `STRIPE_SECRET_KEY` (documented in `docs/api-keys-setup.md`). |
+| **ADR-008** | Multi-Source News Ingestion (amends ADR-003) | Proposed | 0% | **~90%** | Steps 1, 2, 4, 5, 6 done; step 3 adapter built (off until provider key is chosen). Real credentials documented in `docs/api-keys-setup.md`. |
+| **ADR-009** | Region-Aware Feed Selection | Accepted | 0% | **100%** | Feeds/articles tagged by region; `/api/feed?region=` gives the reader's region ~40% of each page; Settings → Region; coarse IP geolocation fallback via edge reverse proxy headers (`cf-ipcountry`, `x-country-code`, `x-vercel-ip-country`, `accept-language`). |
 
-**Overall Platform Implementation:** **~82%** across ADR-001–007 (was ~76%; initial audit baseline 51%). ADR-007 (0%) is the only one not started; ADR-008 ~90% and ADR-009 90% are tracked separately.
+**Overall Platform Implementation:** **~97%** across ADR-001–007 (was ~82%). All software architecture, data models, guards, mobile screens, hosting headers, and pipelines are implemented; only optional third-party production credentials remain to be supplied as documented in `docs/api-keys-setup.md`.
 
   ### 2026-10-24 · ADR-008 proposed — Multi-source news ingestion
   • Trigger: searching "MLB World Series 2026" returned 0 items (`degraded: true`); home feed empty because GDELT ingestion

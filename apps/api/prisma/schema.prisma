@@ -75,6 +75,33 @@ model Bookmark {
   @@unique([userId, articleId])
 }
 
+/// User accounts and subscription tiers (ADR-007).
+model User {
+  id                   String     @id @default(cuid())
+  email                String     @unique
+  name                 String?
+  tier                 String     @default("FREE")
+  role                 String     @default("reader")
+  stripeCustomerId     String?    @unique
+  stripeSubscriptionId String?    @unique
+  subscriptionStatus   String?    @default("active")
+  subscriptionEndsAt   DateTime?
+  apiKey               String?    @unique
+  teamId               String?
+  team                 Team?      @relation(fields: [teamId], references: [id])
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  members   User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model LiveEvent {
   id          String        @id @default(cuid())
   name        String

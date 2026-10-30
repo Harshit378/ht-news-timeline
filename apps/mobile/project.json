@@ -27,7 +27,7 @@
     "bundle-check": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx expo export --platform ios --platform android --output-dir dist-check && rm -rf dist-check",
+        "command": "EXPO_NO_TELEMETRY=1 CI=1 npx expo export --platform ios --platform android --output-dir dist-check && rm -rf dist-check",
         "cwd": "apps/mobile"
       }
     }

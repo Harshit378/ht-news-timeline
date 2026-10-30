@@ -2,16 +2,22 @@ import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Q
 import { NewsStore } from '../store/news.store';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const USER_ID = /^(usr_[a-z0-9_-]+|c[a-z0-9]{20,30})$/i;
 const MAX_BOOKMARKS = 1000;
 
 /**
- * Until accounts exist (ADR-007), bookmarks belong to an anonymous per-device UUID (ADR-006).
- * 'local' is still accepted for older clients.
+ * Supports anonymous per-device UUIDs (ADR-006) as well as registered user IDs (ADR-007).
+ * 'local' is still accepted for backwards compatibility.
  */
 export function parseUserId(raw: unknown): string {
   if (raw === undefined || raw === null || raw === '') return 'local';
-  if (raw === 'local' || (typeof raw === 'string' && UUID.test(raw))) return raw.toLowerCase();
-  throw new BadRequestException('userId must be a device UUID');
+  if (
+    raw === 'local' ||
+    (typeof raw === 'string' && (UUID.test(raw) || USER_ID.test(raw)))
+  ) {
+    return raw.toLowerCase();
+  }
+  throw new BadRequestException('userId must be a device UUID or registered user ID');
 }
 
 export function parseArticleIds(raw: unknown): string[] {
